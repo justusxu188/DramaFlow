@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  username  String    @unique
+  name      String
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Project {
+  id             String            @id @default(cuid())
+  ownerId        String
+  owner          User              @relation(fields: [ownerId], references: [id])
+  name           String
+  genre          String
+  episodeCount   Int
+  status         String            @default("draft")
+  assets         Asset[]
+  scripts        ScriptVersion[]
+  jobs           Job[]
+  productionRuns ProductionRun[]
+  timelines      TimelineVersion[]
+  outputs        Output[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([ownerId, updatedAt])
+}
+
+model Asset {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind          String
+  name          String
+  objectKey     String
+  sourceUrl     String?  @db.Text
+  mimeType      String
+  sizeBytes     BigInt?
+  uploadMode    String?
+  episodeNumber Int?
+  uploadStatus  String   @default("completed")
+  durationMs    Int?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId, kind])
+  @@index([projectId, episodeNumber])
+}
+
+model ScriptVersion {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  hookType    String
+  prerollType String
+  title       String
+  content     Json
+  selected    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+model Job {
+  id                String         @id @default(cuid())
+  projectId         String
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runId             String?
+  run               ProductionRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+  stage             String
+  provider          String
+  status            String
+  progress          Int            @default(0)
+  attempts          Int            @default(0)
+  parentId          String?
+  upstreamRequestId String?
+  idempotencyKey    String         @unique
+  input             Json?
+  result            Json?
+  errorCode         String?
+  errorMessage      String?        @db.Text
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([projectId, createdAt])
+  @@index([runId, createdAt])
+  @@index([status, updatedAt])
+}
+
+model ProductionRun {
+  id                      String        @id
+  projectId               String
+  project                 Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceAssetIds          Json
+  status                  String
+  isCurrent               Boolean       @default(false)
+  planReviewRequired      Boolean       @default(false)
+  productionConfig        Json?
+  highlightRecommendation Json?
+  analysis                Json?
+  arcs                    Json
+  snapshot                Json
+  jobs                    Job[]
+  artifacts               RunArtifact[]
+  createdAt               DateTime
+  updatedAt               DateTime      @updatedAt
+
+  @@index([projectId, isCurrent])
+  @@index([projectId, createdAt])
+}
+
+model RunArtifact {
+  id         String        @id @default(cuid())
+  runId      String
+  run        ProductionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stage      String
+  artifactId String
+  kind       String
+  payload    Json
+  objectKey  String?
+  sourceUrl  String?       @db.Text
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([runId, stage, artifactId])
+  @@index([runId, stage])
+}
+
+model CreativeSetting {
+  id        String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model TimelineVersion {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version   Int
+  tracks    Json
+  selected  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, version])
+}
+
+model Output {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  objectKey  String
+  durationMs Int?
+  resolution String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}

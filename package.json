@@ -1,0 +1,37 @@
+{
+  "name": "aigcadv-short-drama-studio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/run-with-worker.mjs dev",
+    "dev:web": "next dev",
+    "build": "next build",
+    "start": "node scripts/run-with-worker.mjs start",
+    "start:web": "next start",
+    "worker": "node scripts/pipeline-worker.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:real": "node scripts/real-smoke.mjs",
+    "migrate:mysql": "node scripts/migrate-to-mysql.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.14.0",
+    "lucide-react": "^0.468.0",
+    "next": "^16.3.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/node": "^22.17.2",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "jsdom": "^29.1.1",
+    "prisma": "^6.14.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules
+.next
+coverage
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+.tmp
+short-drama-material-plan.pptx
+public/real-demo/*.mp4
+public/real-demo/result.json
+data/project-store.json
