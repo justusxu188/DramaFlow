@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileVideo2,
+  Image as ImageIcon,
   LoaderCircle,
   RefreshCw,
   Upload,
@@ -27,12 +28,18 @@ type UploadStatus =
   | "completed"
   | "failed";
 
-export type SourceUploadJob = {
+export type ProjectUploadTarget =
+  | "source"
+  | "character_image"
+  | "highlight";
+
+export type AssetUploadJob = {
   id: string;
   projectId: string;
   projectName: string;
   file: File;
-  episodeNumber: number;
+  assetType: ProjectUploadTarget;
+  episodeNumber?: number;
   progress: number;
   status: UploadStatus;
   error?: string;
@@ -42,10 +49,19 @@ type EnqueueInput = {
   projectId: string;
   projectName: string;
   files: File[];
+  assetType: ProjectUploadTarget;
 };
 
+type SourceEnqueueInput = Omit<
+  EnqueueInput,
+  "assetType"
+>;
+
 type UploadManagerValue = {
-  enqueueSourceUploads: (input: EnqueueInput) => void;
+  enqueueAssetUploads: (input: EnqueueInput) => void;
+  enqueueSourceUploads: (
+    input: SourceEnqueueInput,
+  ) => void;
 };
 
 const UploadManagerContext =
@@ -63,21 +79,66 @@ export function episodeNumberFromFileName(
 }
 
 export function sourceVideoFiles(files: File[]) {
+  return uploadFilesForTarget(files, "source");
+}
+
+function uniqueMatchingFiles(
+  files: File[],
+  validFile: (file: File) => boolean,
+) {
   const seen = new Set<string>();
   return files.filter((file) => {
-    const valid =
-      ["video/mp4", "video/quicktime"].includes(
-        file.type,
-      ) || /\.(mp4|mov)$/i.test(file.name);
     const key = `${file.name}:${file.size}:${file.lastModified}`;
-    if (!valid || seen.has(key)) return false;
+    if (!validFile(file) || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function sourceMimeType(file: File) {
-  return file.type === "video/quicktime"
+export function uploadFilesForTarget(
+  files: File[],
+  target: ProjectUploadTarget,
+) {
+  return uniqueMatchingFiles(files, (file) =>
+    target === "character_image"
+      ? ["image/jpeg", "image/png", "image/webp"].includes(
+          file.type,
+        ) || /\.(jpe?g|png|webp)$/i.test(file.name)
+      : ["video/mp4", "video/quicktime"].includes(
+          file.type,
+        ) || /\.(mp4|mov)$/i.test(file.name),
+  );
+}
+
+export function uploadAssetName(
+  file: File,
+  target: ProjectUploadTarget,
+) {
+  if (target !== "character_image") return file.name;
+  return `${file.name.replace(/\.[^.]+$/, "")}-上传图片`;
+}
+
+export function uploadMimeType(file: File) {
+  if (
+    file.type === "image/jpeg" ||
+    /\.jpe?g$/i.test(file.name)
+  ) {
+    return "image/jpeg";
+  }
+  if (
+    file.type === "image/png" ||
+    /\.png$/i.test(file.name)
+  ) {
+    return "image/png";
+  }
+  if (
+    file.type === "image/webp" ||
+    /\.webp$/i.test(file.name)
+  ) {
+    return "image/webp";
+  }
+  return file.type === "video/quicktime" ||
+    /\.mov$/i.test(file.name)
     ? "video/quicktime"
     : "video/mp4";
 }
@@ -92,7 +153,7 @@ function putFile(
     request.open("PUT", url);
     request.setRequestHeader(
       "Content-Type",
-      sourceMimeType(file),
+      uploadMimeType(file),
     );
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -143,16 +204,16 @@ export function UploadManagerProvider({
   children: ReactNode;
 }) {
   const router = useRouter();
-  const [jobs, setJobs] = useState<SourceUploadJob[]>(
+  const [jobs, setJobs] = useState<AssetUploadJob[]>(
     [],
   );
   const [expanded, setExpanded] = useState(true);
-  const jobsRef = useRef<SourceUploadJob[]>([]);
+  const jobsRef = useRef<AssetUploadJob[]>([]);
 
   const updateJob = useCallback(
     (
       id: string,
-      patch: Partial<SourceUploadJob>,
+      patch: Partial<AssetUploadJob>,
     ) => {
       jobsRef.current = jobsRef.current.map((job) =>
         job.id === id ? { ...job, ...patch } : job,
@@ -163,7 +224,7 @@ export function UploadManagerProvider({
   );
 
   const uploadJob = useCallback(
-    async (job: SourceUploadJob) => {
+    async (job: AssetUploadJob) => {
       updateJob(job.id, {
         status: "uploading",
         progress: 0,
@@ -171,7 +232,9 @@ export function UploadManagerProvider({
       });
       try {
         const durationMs =
-          await probeVideoDuration(job.file);
+          job.assetType === "character_image"
+            ? null
+            : await probeVideoDuration(job.file);
         const signResponse = await fetch(
           "/api/uploads/sign",
           {
@@ -182,9 +245,9 @@ export function UploadManagerProvider({
             body: JSON.stringify({
               projectId: job.projectId,
               fileName: job.file.name,
-              mimeType: sourceMimeType(job.file),
+              mimeType: uploadMimeType(job.file),
               size: job.file.size,
-              assetType: "source",
+              assetType: job.assetType,
             }),
           },
         );
@@ -215,16 +278,61 @@ export function UploadManagerProvider({
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              uploadMode: "episodes",
-              name: job.file.name,
-              objectKey: signPayload.data.objectKey,
-              sourceUrl: signPayload.data.sourceUrl,
-              mimeType: sourceMimeType(job.file),
-              sizeBytes: job.file.size,
-              durationMs,
-              episodeNumber: job.episodeNumber,
-            }),
+            body: JSON.stringify(
+              job.assetType === "character_image"
+                ? {
+                    assetType: "character_image",
+                    name: uploadAssetName(
+                      job.file,
+                      job.assetType,
+                    ),
+                    objectKey:
+                      signPayload.data.objectKey,
+                    sourceUrl:
+                      signPayload.data.sourceUrl,
+                    mimeType: uploadMimeType(job.file),
+                    sizeBytes: job.file.size,
+                    characterName: job.file.name.replace(
+                      /\.[^.]+$/,
+                      "",
+                    ),
+                    lookName: "上传图片",
+                    viewType: "other",
+                    isBaseline: false,
+                  }
+                : job.assetType === "highlight"
+                  ? {
+                      assetType: "highlight",
+                      name: uploadAssetName(
+                        job.file,
+                        job.assetType,
+                      ),
+                      objectKey:
+                        signPayload.data.objectKey,
+                      sourceUrl:
+                        signPayload.data.sourceUrl,
+                      mimeType:
+                        uploadMimeType(job.file),
+                      sizeBytes: job.file.size,
+                      durationMs,
+                    }
+                  : {
+                      uploadMode: "episodes",
+                      name: uploadAssetName(
+                        job.file,
+                        job.assetType,
+                      ),
+                      objectKey:
+                        signPayload.data.objectKey,
+                      sourceUrl:
+                        signPayload.data.sourceUrl,
+                      mimeType:
+                        uploadMimeType(job.file),
+                      sizeBytes: job.file.size,
+                      durationMs,
+                      episodeNumber: job.episodeNumber,
+                    },
+            ),
           },
         );
         const assetPayload =
@@ -255,7 +363,7 @@ export function UploadManagerProvider({
   );
 
   const processJobs = useCallback(
-    async (nextJobs: SourceUploadJob[]) => {
+    async (nextJobs: AssetUploadJob[]) => {
       for (const job of nextJobs) {
         await uploadJob(job);
       }
@@ -263,9 +371,12 @@ export function UploadManagerProvider({
     [uploadJob],
   );
 
-  const enqueueSourceUploads = useCallback(
+  const enqueueAssetUploads = useCallback(
     (input: EnqueueInput) => {
-      const files = sourceVideoFiles(input.files);
+      const files = uploadFilesForTarget(
+        input.files,
+        input.assetType,
+      );
       if (!files.length) return;
       const now = Date.now();
       const nextJobs = files
@@ -274,17 +385,22 @@ export function UploadManagerProvider({
           projectId: input.projectId,
           projectName: input.projectName,
           file,
+          assetType: input.assetType,
           episodeNumber:
-            episodeNumberFromFileName(
-              file.name,
-              index + 1,
-            ),
+            input.assetType === "source"
+              ? episodeNumberFromFileName(
+                  file.name,
+                  index + 1,
+                )
+              : undefined,
           progress: 0,
           status: "waiting" as const,
         }))
-        .sort(
-          (a, b) =>
-            a.episodeNumber - b.episodeNumber,
+        .sort((a, b) =>
+          input.assetType === "source"
+            ? (a.episodeNumber ?? 0) -
+              (b.episodeNumber ?? 0)
+            : 0,
         );
       jobsRef.current = [
         ...jobsRef.current,
@@ -295,6 +411,14 @@ export function UploadManagerProvider({
       void processJobs(nextJobs);
     },
     [processJobs],
+  );
+  const enqueueSourceUploads = useCallback(
+    (input: SourceEnqueueInput) =>
+      enqueueAssetUploads({
+        ...input,
+        assetType: "source",
+      }),
+    [enqueueAssetUploads],
   );
 
   const activeCount = jobs.filter((job) =>
@@ -317,7 +441,10 @@ export function UploadManagerProvider({
 
   return (
     <UploadManagerContext.Provider
-      value={{ enqueueSourceUploads }}
+      value={{
+        enqueueAssetUploads,
+        enqueueSourceUploads,
+      }}
     >
       {children}
       {jobs.length > 0 && (
@@ -389,12 +516,22 @@ export function UploadManagerProvider({
             <div className="background-upload-list">
               {jobs.map((job) => (
                 <article key={job.id}>
-                  <FileVideo2 size={15} />
+                  {job.assetType ===
+                  "character_image" ? (
+                    <ImageIcon size={15} />
+                  ) : (
+                    <FileVideo2 size={15} />
+                  )}
                   <div>
                     <strong>{job.file.name}</strong>
                     <small>
-                      {job.projectName} · 第{" "}
-                      {job.episodeNumber} 集
+                      {job.projectName} ·{" "}
+                      {job.assetType === "source"
+                        ? `源视频 · 第 ${job.episodeNumber} 集`
+                        : job.assetType ===
+                            "character_image"
+                          ? "图像资产"
+                          : "高光剪辑"}
                     </small>
                     {job.error && <p>{job.error}</p>}
                   </div>

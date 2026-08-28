@@ -11,9 +11,7 @@ import {
   Check,
   Clock3,
   File as FileIcon,
-  Files,
   Film,
-  FolderOpen,
   LoaderCircle,
   MoreHorizontal,
   Plus,
@@ -21,13 +19,16 @@ import {
   Sparkles,
   Trash2,
   TrendingUp,
+  Upload,
   X,
 } from "lucide-react";
 import {
-  sourceVideoFiles,
+  type ProjectUploadTarget,
+  uploadFilesForTarget,
   useUploadManager,
 } from "@/components/upload-manager";
 import { creativeWorkTypes } from "@/lib/creative-work-types";
+import { filesFromDataTransfer } from "@/lib/file-drop";
 
 type ProjectView = {
   id: string;
@@ -49,9 +50,18 @@ const statusLabels: Record<string, string> = {
   completed: "已完成",
 };
 
+const uploadTargets: Array<{
+  id: ProjectUploadTarget;
+  label: string;
+}> = [
+  { id: "source", label: "源视频" },
+  { id: "character_image", label: "图像资产" },
+  { id: "highlight", label: "高光剪辑" },
+];
+
 export function ProjectDashboard() {
   const router = useRouter();
-  const { enqueueSourceUploads } =
+  const { enqueueAssetUploads } =
     useUploadManager();
   const [showCreate, setShowCreate] = useState(false);
   const [query, setQuery] = useState("");
@@ -61,9 +71,12 @@ export function ProjectDashboard() {
   const [error, setError] = useState("");
   const [createError, setCreateError] =
     useState("");
-  const [sourceFiles, setSourceFiles] = useState<
+  const [selectedFiles, setSelectedFiles] = useState<
     File[]
   >([]);
+  const [uploadTarget, setUploadTarget] =
+    useState<ProjectUploadTarget>("source");
+  const [dragActive, setDragActive] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] =
     useState("");
 
@@ -137,15 +150,17 @@ export function ProjectDashboard() {
       }
       const data = responsePayload.data;
       setProjects((current) => [data, ...current]);
-      if (sourceFiles.length) {
-        enqueueSourceUploads({
+      if (selectedFiles.length) {
+        enqueueAssetUploads({
           projectId: data.id,
           projectName: data.name,
-          files: sourceFiles,
+          files: selectedFiles,
+          assetType: uploadTarget,
         });
       }
       setShowCreate(false);
-      setSourceFiles([]);
+      setSelectedFiles([]);
+      setUploadTarget("source");
       router.push(`/projects/${data.id}`);
     } catch (reason) {
       setCreateError(
@@ -158,16 +173,47 @@ export function ProjectDashboard() {
     }
   }
 
-  function chooseSourceFiles(files: FileList | null) {
-    setSourceFiles(
-      sourceVideoFiles(Array.from(files ?? [])),
+  function chooseUploadFiles(files: ArrayLike<File>) {
+    setSelectedFiles(
+      uploadFilesForTarget(
+        Array.from(files),
+        uploadTarget,
+      ),
     );
   }
 
-  const sourceTotalBytes = sourceFiles.reduce(
+  async function handleFileDrop(
+    event: React.DragEvent<HTMLLabelElement>,
+  ) {
+    event.preventDefault();
+    setDragActive(false);
+    try {
+      const droppedFiles = await filesFromDataTransfer(
+        event.dataTransfer,
+      );
+      setSelectedFiles((current) =>
+        uploadFilesForTarget(
+          [...current, ...droppedFiles],
+          uploadTarget,
+        ),
+      );
+    } catch (reason) {
+      setCreateError(
+        reason instanceof Error
+          ? reason.message
+          : "无法读取拖入的文件",
+      );
+    }
+  }
+
+  const selectedTotalBytes = selectedFiles.reduce(
     (total, file) => total + file.size,
     0,
   );
+  const uploadAccept =
+    uploadTarget === "character_image"
+      ? ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+      : ".mp4,.mov,video/mp4,video/quicktime";
 
   return (
     <div className="page dashboard-page">
@@ -337,75 +383,91 @@ export function ProjectDashboard() {
               <label>剧目名称<input name="name" required minLength={2} placeholder="例如：我的短剧项目" /></label>
               <label>题材类型<input name="genre" required placeholder="都市逆袭 / 古风种田" /></label>
               <fieldset className="create-project-upload">
-                <legend>上传源视频（可选）</legend>
-                <div className="create-project-upload-options">
-                  <label>
-                    <FileIcon size={18} />
-                    <span>
-                      <strong>单个文件</strong>
-                      <small>选择一个 MP4 / MOV</small>
-                    </span>
-                    <input
-                      type="file"
-                      accept=".mp4,.mov,video/mp4,video/quicktime"
-                      onChange={(event) =>
-                        chooseSourceFiles(
-                          event.target.files,
-                        )}
-                    />
-                  </label>
-                  <label>
-                    <Files size={18} />
-                    <span>
-                      <strong>多个文件</strong>
-                      <small>一次选择多集视频</small>
-                    </span>
-                    <input
-                      type="file"
-                      accept=".mp4,.mov,video/mp4,video/quicktime"
-                      multiple
-                      onChange={(event) =>
-                        chooseSourceFiles(
-                          event.target.files,
-                        )}
-                    />
-                  </label>
-                  <label>
-                    <FolderOpen size={18} />
-                    <span>
-                      <strong>选择文件夹</strong>
-                      <small>读取文件夹内全部视频</small>
-                    </span>
-                    <input
-                      type="file"
-                      accept=".mp4,.mov,video/mp4,video/quicktime"
-                      multiple
-                      ref={(input) => {
-                        input?.setAttribute(
-                          "webkitdirectory",
-                          "",
-                        );
-                        input?.setAttribute(
-                          "directory",
-                          "",
+                <legend>上传素材（可选）</legend>
+                <div
+                  className="create-project-upload-targets"
+                  role="group"
+                  aria-label="上传到素材库目录"
+                >
+                  {uploadTargets.map((target) => (
+                    <button
+                      key={target.id}
+                      type="button"
+                      aria-pressed={
+                        uploadTarget === target.id
+                      }
+                      onClick={() => {
+                        setUploadTarget(target.id);
+                        setSelectedFiles((current) =>
+                          uploadFilesForTarget(
+                            current,
+                            target.id,
+                          ),
                         );
                       }}
-                      onChange={(event) =>
-                        chooseSourceFiles(
-                          event.target.files,
-                        )}
-                    />
-                  </label>
+                    >
+                      {target.label}
+                    </button>
+                  ))}
                 </div>
-                {sourceFiles.length > 0 && (
+                <label
+                  className={`create-project-dropzone ${
+                    dragActive ? "is-dragging" : ""
+                  }`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect =
+                      "copy";
+                  }}
+                  onDragLeave={(event) => {
+                    if (
+                      !event.currentTarget.contains(
+                        event.relatedTarget as Node,
+                      )
+                    ) {
+                      setDragActive(false);
+                    }
+                  }}
+                  onDrop={(event) =>
+                    void handleFileDrop(event)
+                  }
+                >
+                  <Upload size={20} />
+                  <span>
+                    <strong>点击选择或拖入素材</strong>
+                    <small>
+                      支持单个、多个文件；文件夹可直接拖入
+                    </small>
+                  </span>
+                  <input
+                    type="file"
+                    aria-label="选择上传文件"
+                    accept={uploadAccept}
+                    multiple
+                    onChange={(event) =>
+                      chooseUploadFiles(
+                        event.target.files ?? [],
+                      )
+                    }
+                  />
+                </label>
+                {selectedFiles.length > 0 && (
                   <div className="create-project-selected-files">
                     <header>
                       <strong>
-                        已选择 {sourceFiles.length} 个视频
+                        已选择 {selectedFiles.length} 个
+                        {uploadTarget ===
+                        "character_image"
+                          ? "图片"
+                          : "视频"}
                       </strong>
                       <small>
                         {(
-                          sourceTotalBytes /
+                          selectedTotalBytes /
                           1024 /
                           1024
                         ).toFixed(1)}{" "}
@@ -413,7 +475,7 @@ export function ProjectDashboard() {
                       </small>
                     </header>
                     <div>
-                      {sourceFiles.map((file, index) => (
+                      {selectedFiles.map((file, index) => (
                         <article
                           key={`${file.name}-${file.size}-${file.lastModified}`}
                         >
@@ -424,7 +486,7 @@ export function ProjectDashboard() {
                             className="icon-button"
                             aria-label={`移除 ${file.name}`}
                             onClick={() =>
-                              setSourceFiles((current) =>
+                              setSelectedFiles((current) =>
                                 current.filter(
                                   (_, itemIndex) =>
                                     itemIndex !== index,
@@ -453,7 +515,7 @@ export function ProjectDashboard() {
                   {creating ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
                   {creating
                     ? "创建中"
-                    : sourceFiles.length
+                    : selectedFiles.length
                       ? "创建并后台上传"
                       : "创建并进入"}
                 </button>

@@ -3398,7 +3398,7 @@ describe("dashboard interactions", () => {
     ).toBeNull();
   });
 
-  it("selects one, multiple, or a folder of source videos while creating a project", async () => {
+  it("uses one destination-aware picker while creating a project", async () => {
     const user = userEvent.setup();
     render(
       <UploadManagerProvider>
@@ -3412,27 +3412,35 @@ describe("dashboard interactions", () => {
       }),
     );
 
-    const singleInput = screen.getByLabelText(
-      /单个文件/,
-    );
-    const multipleInput = screen.getByLabelText(
-      /多个文件/,
-    );
-    const folderInput = screen.getByLabelText(
-      /选择文件夹/,
+    const uploadInput = screen.getByLabelText(
+      "选择上传文件",
     );
 
     expect(
-      singleInput.hasAttribute("multiple"),
-    ).toBe(false);
-    expect(
-      multipleInput.hasAttribute("multiple"),
+      uploadInput.hasAttribute("multiple"),
     ).toBe(true);
     expect(
-      folderInput.hasAttribute("webkitdirectory"),
-    ).toBe(true);
+      screen.queryByText("单个文件"),
+    ).toBeNull();
+    expect(
+      screen.queryByText("多个文件"),
+    ).toBeNull();
+    expect(
+      screen.queryByText("选择文件夹"),
+    ).toBeNull();
+    for (const target of [
+      "源视频",
+      "图像资产",
+      "高光剪辑",
+    ]) {
+      expect(
+        screen.getByRole("button", {
+          name: target,
+        }),
+      ).toBeTruthy();
+    }
 
-    await user.upload(multipleInput, [
+    await user.upload(uploadInput, [
       new File(["1"], "第01集.mp4", {
         type: "video/mp4",
       }),
