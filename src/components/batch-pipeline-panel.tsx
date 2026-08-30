@@ -834,17 +834,9 @@ export function BatchPipelinePanel({
             : ""),
       };
     }
-    const kinds: Record<
-      "analysis" | "arcs" | "highlights" | "outputs",
-      string[]
-    > = {
-      analysis: ["analysis"],
-      arcs: ["mine_arcs"],
-      highlights: ["highlight"],
-      outputs: ["compose"],
-    };
-    const related = effectiveCurrentJobs.filter((job) =>
-      kinds[stage].includes(job.kind),
+    const related = pipelineStageJobs(
+      effectiveCurrentJobs,
+      stage,
     );
     const runningCount = related.filter((job) =>
       ["queued", "running"].includes(job.status),

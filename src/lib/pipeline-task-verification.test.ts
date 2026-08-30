@@ -66,4 +66,23 @@ describe("pipeline task verification", () => {
       }, undefined),
     ).toBe("completed");
   });
+
+  it("shows requeued upstream work as running after processing starts", () => {
+    expect(
+      pipelineTaskDisplayStatus({
+        ...job,
+        kind: "highlight_analysis",
+        status: "queued",
+        progress: 62,
+      }),
+    ).toBe("running");
+    expect(
+      pipelineTaskDisplayStatus({
+        ...job,
+        kind: "highlight_analysis",
+        status: "queued",
+        progress: 0,
+      }),
+    ).toBe("queued");
+  });
 });

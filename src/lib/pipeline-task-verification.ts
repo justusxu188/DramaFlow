@@ -25,6 +25,9 @@ export function pipelineTaskDisplayStatus(
   job: PipelineJob,
   render?: RenderVariant,
 ): PipelineTaskDisplayStatus {
+  if (job.status === "queued" && job.progress > 0) {
+    return "running";
+  }
   if (
     job.status !== "completed" ||
     job.kind !== "preroll" ||

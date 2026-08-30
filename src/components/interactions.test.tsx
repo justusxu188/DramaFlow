@@ -1003,6 +1003,76 @@ describe("pipeline interactions", () => {
     })).toBeTruthy();
   });
 
+  it("shows uploaded-highlight analysis jobs in the storyline stage", async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          status: "analysis_running",
+          currentRunId: "run-current",
+          productionConfig: {
+            ...defaultProductionConfig,
+            productionEntry: "uploaded_highlights",
+          },
+          arcs: [],
+          highlights: [],
+          scripts: [],
+          renders: [],
+          compositions: [],
+        },
+        jobs: [{
+          id: "job-highlight-analysis",
+          runId: "run-current",
+          kind: "highlight_analysis",
+          status: "queued",
+          progress: 62,
+          input: {
+            productionEntry: "uploaded_highlights",
+            sourceHighlightAssetId: "highlight-asset-1",
+          },
+        }, {
+          id: "job-highlight-context",
+          runId: "run-current",
+          kind: "highlight_context",
+          status: "queued",
+          progress: 1,
+          input: {
+            productionEntry: "uploaded_highlights",
+            analysisJobIds: ["job-highlight-analysis"],
+          },
+        }],
+      }),
+    } as Response);
+
+    render(
+      <BatchPipelinePanel
+        projectId="project-real"
+        workType={parseCreativeWorkType(
+          "highlight-preroll",
+        )}
+        hasSources={false}
+        selectedAssetIds={["highlight-asset-1"]}
+        selectedAssets={[{
+          id: "highlight-asset-1",
+          durationMs: 60000,
+        }]}
+        probingDurations={false}
+        sourceCount={0}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("tab", {
+        name: /运行中 2 剧情理解/,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("tab", {
+        name: /等待 爽点故事线/,
+      }),
+    ).toBeTruthy();
+  });
+
   it("shows every storyline field without truncating clips", async () => {
     const clips = Array.from({ length: 7 }, (_, index) => ({
       index,
