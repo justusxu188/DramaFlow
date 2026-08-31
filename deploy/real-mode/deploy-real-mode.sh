@@ -322,36 +322,80 @@ install_nginx_vhost() {
   # hit our frameflow.conf (default_server) instead of getting 403.
   if [ -f /etc/nginx/nginx.conf ]; then
     if grep -qE 'server_name\s+_\s*;' /etc/nginx/nginx.conf 2>/dev/null; then
-      warn "Found default server_name _ in /etc/nginx/nginx.conf; commenting default 80/443 blocks out so frameflow.conf can be default_server."
-      python3 - <<'PY'
+      warn "Found default server_name _ in /etc/nginx/nginx.conf; commenting the default server block out so frameflow.conf can be default_server."
+      NGINX_CONF_BAK="/etc/nginx/nginx.conf.bak.$(date +%Y%m%d%H%M%S)"
+      cp -a /etc/nginx/nginx.conf "$NGINX_CONF_BAK"
+      rm -f /tmp/nginx.conf.fixed
+      PATCH_OK=0
+      # Primary engine: python3. Never edits in place: writes a candidate to
+      # /tmp/nginx.conf.fixed; callers validate it with `nginx -t` before install.
+      if python3 - <<'PY'
+import re
 from pathlib import Path
-p = Path('/etc/nginx/nginx.conf')
-text = p.read_text()
-out, depth, in_default_block, default_started = [], 0, False, False
+
+src = Path('/etc/nginx/nginx.conf')
+dst = Path('/tmp/nginx.conf.fixed')
+text = src.read_text()
+out = []
+candidate = False       # inside a server { ... } block that may be the default one
+cand_depth = 0          # brace depth within the candidate block
+cand_start = 0          # index in out where the candidate block's first line sits
+in_default = False      # inside the confirmed default server block
+depth = 0               # brace depth within the default block
+commented = 0
+
+def as_comment(line):
+    if line.strip() and not line.strip().startswith('#'):
+        return '# ' + line, 1
+    return line, 0
+
 for line in text.splitlines(True):
-    s = line.rstrip()
-    stripped = s.strip()
+    stripped = line.strip()
     opens = line.count('{')
     closes = line.count('}')
-    if not in_default_block and re.search(r'server\s*\{', stripped) and any(k in s for k in ['listen       80 default_server;', 'listen 80;', 'server_name  _;'] if False else [True]):
-        # heuristic: enter candidate
-        default_started = True
-    if default_started and 'server_name  _;' in s:
-        in_default_block = True
-        depth = 0
-    if in_default_block:
-        depth += opens - closes
-        # comment it out
-        if stripped and not stripped.startswith('#'):
-            line = '# ' + line
+    delta = opens - closes
+    if in_default:
+        depth += delta
+        line, n = as_comment(line)
+        commented += n
         if depth <= 0 and closes > 0:
-            in_default_block = False
-            default_started = False
+            in_default = False
+            candidate = False
+        out.append(line)
+        continue
+    if candidate:
+        cand_depth += delta
+        if re.search(r'server_name\s+_\s*;', stripped):
+            in_default = True
+            depth = cand_depth
+            # retro-comment the buffered candidate lines (incl. the "server {" opener)
+            for idx in range(cand_start, len(out)):
+                out[idx], n = as_comment(out[idx])
+                commented += n
+            line, n = as_comment(line)
+            commented += n
+            if depth <= 0 and closes > 0:
+                in_default = False
+                candidate = False
+        elif cand_depth <= 0 and closes > 0:
+            candidate = False   # candidate block ended without server_name _
+        out.append(line)
+        continue
+    if re.search(r'server\s*\{', stripped):
+        candidate = True
+        cand_depth = delta
+        cand_start = len(out)
     out.append(line)
-p.write_text(''.join(out))
+
+if commented == 0:
+    raise SystemExit('python patcher: default server block not found')
+dst.write_text(''.join(out))
 PY
-      # Fallback: python regex engine may not have re imported. Use simpler awk.
-      awk 'BEGIN{bl=0; skip=0; lastskip=0}
+        [ -s /tmp/nginx.conf.fixed ] && nginx -t -c /tmp/nginx.conf.fixed >/dev/null 2>&1; then
+        PATCH_OK=1
+        log "Default server block commented out (python3 engine)."
+      # Fallback engine: awk. Used when python3 is missing or its candidate fails nginx -t.
+      elif awk 'BEGIN{cand=0; skip=0; depth=0; block=""}
            {
              line=$0
              if (match(line, /server[[:space:]]*\{/)>0) { cand=1; depth=0; block="" }
@@ -365,7 +409,6 @@ PY
                if (index(block,"server_name  _;")>0 || index(block,"server_name _;")>0) { skip=1 }
                if (depth<=0) {
                  if (skip) {
-                   # print commented block
                    split(block, lines, "\n")
                    for (li=1; li in lines; li++) {
                      if (lines[li]=="") continue
@@ -379,12 +422,18 @@ PY
                next
              }
              print line
-           }' /etc/nginx/nginx.conf > /tmp/nginx.conf.fixed
-      if [ -s /tmp/nginx.conf.fixed ] && nginx -t -c /tmp/nginx.conf.fixed >/dev/null 2>&1; then
-        mv /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak."$(date +%Y%m%d%H%M%S)"
+           }' /etc/nginx/nginx.conf > /tmp/nginx.conf.fixed 2>/dev/null \
+          && [ -s /tmp/nginx.conf.fixed ] \
+          && nginx -t -c /tmp/nginx.conf.fixed >/dev/null 2>&1; then
+        PATCH_OK=1
+        log "Default server block commented out (awk fallback engine)."
+      fi
+      if [ "$PATCH_OK" -eq 1 ]; then
         mv /tmp/nginx.conf.fixed /etc/nginx/nginx.conf
+        log "nginx.conf patched; original saved at $NGINX_CONF_BAK."
       else
-        warn "Could not auto-patch nginx.conf default server block; please comment the default server block yourself and run: nginx -t && systemctl restart nginx"
+        warn "Could not auto-patch /etc/nginx/nginx.conf default server block (file left untouched; backup at $NGINX_CONF_BAK)."
+        warn "Manually comment out the default server { ... } block in /etc/nginx/nginx.conf, then run: nginx -t && systemctl restart nginx"
       fi
     fi
   fi
