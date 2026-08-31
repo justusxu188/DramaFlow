@@ -1,0 +1,51 @@
+# Nginx vhost for DramaFlow real-mode deployments (bare ECS, no domain, IP-only).
+#
+# Deployer replaces __PUBLIC_IP__ with the ECS public IPv4 when installing.
+# This file MUST be placed at:
+#   /etc/nginx/conf.d/frameflow.conf
+# and the distro default "server_name _" block in /etc/nginx/nginx.conf MUST be
+# disabled so this virtual host becomes default_server on port 80.
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    # Accept requests both for the public IPv4 AND any fallback Host header
+    # (e.g. health probes that send Host=<internal lan ip>).
+    server_name __PUBLIC_IP__  _;
+
+    # Drastically larger body size because users upload source videos.
+    client_max_body_size 2G;
+    client_body_timeout 300s;
+
+    # Reasonable timeouts for upload progress streams and SSE-style polling.
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_connect_timeout 10s;
+
+    # Hide Nginx version / upstream headers for privacy.
+    server_tokens off;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  $server_port;
+
+        # Required for upload-manager SSE/progress and any future WebSocket usage.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    # Mild rate-limit protection on /api/upload/* and /api/sign. Adjust as needed.
+    # (disabled by default so deployments don't drop large multi-part uploads.)
+    # limit_req zone=upload burst=20 nodelay;
+}
