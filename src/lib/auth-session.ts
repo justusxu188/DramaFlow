@@ -80,10 +80,38 @@ export function verifySessionToken(
   }
 }
 
-export const sessionCookieOptions = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/",
-  maxAge: sessionMaxAgeSeconds,
-};
+/**
+ * Whether the session cookie should carry the `Secure` attribute.
+ *
+ * HTTPS deployments must use Secure cookies. But bare-ECS deployments
+ * (IP-only, no domain, no TLS) are served over plain HTTP, where browsers
+ * silently reject any Set-Cookie carrying `Secure` — which makes login
+ * impossible (the session is never stored). Derive the flag from the actual
+ * request protocol (nginx sets X-Forwarded-Proto; see
+ * deploy/real-mode/nginx-frameflow.conf.example) instead of NODE_ENV, and
+ * allow FRAMEFLOW_COOKIE_SECURE=true|false to force the behaviour.
+ */
+export function isSecureSessionRequest(request: Request) {
+  const override = process.env.FRAMEFLOW_COOKIE_SECURE;
+  if (override === "true") return true;
+  if (override === "false") return false;
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  if (forwardedProto) {
+    return forwardedProto.split(",")[0].trim() === "https";
+  }
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return process.env.NODE_ENV === "production";
+  }
+}
+
+export function sessionCookieOptionsFor(request: Request) {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: isSecureSessionRequest(request),
+    path: "/",
+    maxAge: sessionMaxAgeSeconds,
+  };
+}

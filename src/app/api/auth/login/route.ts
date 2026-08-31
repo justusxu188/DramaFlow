@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   createSessionToken,
   sessionCookieName,
-  sessionCookieOptions,
+  sessionCookieOptionsFor,
 } from "@/lib/auth-session";
 import { assignUnownedProjects } from "@/lib/project-store";
 import {
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     cookieStore.set(
       sessionCookieName,
       createSessionToken(user.id),
-      sessionCookieOptions,
+      sessionCookieOptionsFor(request),
     );
     return NextResponse.json({ data: { user } });
   } catch {
