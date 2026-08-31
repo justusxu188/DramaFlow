@@ -54,6 +54,8 @@ export async function handleRegenerateScripts(
     productionConfig,
     recommendation,
     input.prerollType,
+    [],
+    pipeline.currentRunId,
   );
   const data = await enqueuePipelineJob({
     projectId,

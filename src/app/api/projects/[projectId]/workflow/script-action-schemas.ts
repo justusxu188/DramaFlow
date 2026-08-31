@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import {
-  characterAppearanceSchema,
-  characterSelectionSchema,
-} from "./schema-common";
+import { characterSelectionSchema } from "./schema-common";
 import { prerollTypes } from "@/lib/domain";
 import {
   productionConfigSchema,
@@ -143,24 +140,4 @@ export const generatePrerollsActionSchema = z.object({
   scriptIds: z.array(z.string().min(1)).min(1).max(36),
   workflowEntry: z.enum(productionEntries).optional(),
   characterSelections: z.array(characterSelectionSchema).max(144).optional(),
-});
-
-export const saveCharacterBindingsActionSchema = z.object({
-  action: z.literal("save_character_bindings"),
-  characters: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().trim().min(1).max(120),
-        role: z.string().trim().max(200),
-        aliases: z.array(z.string().trim().min(1).max(120)).max(20),
-        status: z.enum(["candidate", "confirmed", "unknown"]),
-        appearances: z.array(characterAppearanceSchema).min(1).max(24),
-        primaryAppearanceId: z.string().min(1).optional(),
-        referenceAssetIds: z.array(z.string().min(1)).max(8),
-        confirmedAt: z.string().datetime().optional(),
-        updatedAt: z.string().datetime(),
-      }),
-    )
-    .max(48),
 });

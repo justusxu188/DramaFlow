@@ -65,7 +65,6 @@ export async function POST(
     if (isSimpleWorkflowAction(input)) {
       return handleSimpleWorkflowCommand(input, {
         projectId,
-        projectName: project.name,
         requestId,
       });
     }

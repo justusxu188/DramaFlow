@@ -25,6 +25,54 @@ function parseShotDuration(time: string) {
   return end - start;
 }
 
+function allocateShotDurations(
+  sourceDurations: number[],
+  total: number,
+) {
+  const remaining = total - sourceDurations.length;
+  if (remaining <= 0) {
+    return sourceDurations.map(() => 1);
+  }
+  const sourceTotal = sourceDurations.reduce(
+    (sum, duration) => sum + duration,
+    0,
+  );
+  const scale = sourceTotal > 0 ? total / sourceTotal : 1;
+  const preferredDurations = sourceDurations.map(
+    (duration) => duration * scale,
+  );
+  const extraWeights = preferredDurations.map(
+    (duration) => Math.max(0, duration - 1),
+  );
+  const extraWeightTotal = extraWeights.reduce(
+    (sum, duration) => sum + duration,
+    0,
+  );
+  const exactExtras = extraWeights.map((weight) =>
+    extraWeightTotal > 0
+      ? weight * remaining / extraWeightTotal
+      : remaining / sourceDurations.length,
+  );
+  const extras = exactExtras.map(Math.floor);
+  let undistributed =
+    remaining - extras.reduce((sum, duration) => sum + duration, 0);
+  const allocationOrder = exactExtras
+    .map((duration, index) => ({
+      index,
+      remainder: duration - Math.floor(duration),
+    }))
+    .sort(
+      (left, right) =>
+        right.remainder - left.remainder ||
+        left.index - right.index,
+    );
+  for (let index = 0; undistributed > 0; index += 1) {
+    extras[allocationOrder[index % allocationOrder.length].index] += 1;
+    undistributed -= 1;
+  }
+  return extras.map((duration) => duration + 1);
+}
+
 function hasSemanticBoundary(
   shot: ScriptDraft["shots"][number],
 ) {
@@ -80,18 +128,10 @@ export function planVideoSegments(
   const sourceDurations = allTimesValid
     ? parsedDurations
     : shots.map(() => total / shots.length);
-  const sourceTotal = sourceDurations.reduce(
-    (sum, duration) => sum + duration,
-    0,
+  const shotDurations = allocateShotDurations(
+    sourceDurations,
+    total,
   );
-  const scale = sourceTotal > 0 ? total / sourceTotal : 1;
-  const shotDurations = sourceDurations.map((duration) =>
-    Math.max(1, Math.round(duration * scale)),
-  );
-  const durationDelta =
-    total -
-    shotDurations.reduce((sum, duration) => sum + duration, 0);
-  shotDurations[shotDurations.length - 1] += durationDelta;
 
   shotDurations.forEach((duration, shotIndex) => {
     if (duration <= 0) {

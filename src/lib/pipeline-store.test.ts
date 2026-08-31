@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { defaultProductionConfig } from "./production-config";
 import {
   activateRenderRevisionState,
+  assignPipelineRunSequences,
   applyNextProductionPlan,
   applyActiveRunForEntry,
   appendRenderRevision,
@@ -10,6 +11,7 @@ import {
   invalidateCompositionsForRenderVersion,
   mergeRenderVersion,
   normalizeRenderArtifacts,
+  nextPipelineRunSequence,
   reconcileCompositionJobResults,
   reconcileRunProductionEntries,
   resolvePipelineWorkspaceProject,
@@ -19,6 +21,45 @@ import {
   videoPromptMatchesScript,
   videoPromptSystemPromptHash,
 } from "./pipeline-store";
+
+describe("pipeline run sequences", () => {
+  it("numbers legacy runs deterministically by creation time", () => {
+    const runs = [
+      {
+        id: "run-newer",
+        createdAt: "2026-08-21T17:10:00.000Z",
+      },
+      {
+        id: "run-older",
+        createdAt: "2026-08-20T08:00:00.000Z",
+      },
+    ];
+
+    assignPipelineRunSequences(runs as never);
+
+    expect(runs).toEqual([
+      expect.objectContaining({ id: "run-newer", sequence: 2 }),
+      expect.objectContaining({ id: "run-older", sequence: 1 }),
+    ]);
+  });
+
+  it("preserves persisted numbers and allocates the next project-local value", () => {
+    const firstProjectRuns = [
+      { id: "run-1", sequence: 1, createdAt: "2026-08-20T08:00:00.000Z" },
+      { id: "run-2", sequence: 4, createdAt: "2026-08-21T08:00:00.000Z" },
+    ];
+    const secondProjectRuns: Array<{
+      id: string;
+      sequence?: number;
+      createdAt: string;
+    }> = [];
+
+    assignPipelineRunSequences(firstProjectRuns as never);
+
+    expect(nextPipelineRunSequence(firstProjectRuns as never)).toBe(5);
+    expect(nextPipelineRunSequence(secondProjectRuns as never)).toBe(1);
+  });
+});
 
 describe("next production plan isolation", () => {
   it("does not overwrite the active run snapshot", () => {

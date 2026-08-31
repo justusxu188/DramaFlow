@@ -14,7 +14,6 @@ import {
 import {
   confirmProductionPlan,
   getPipelineWorkspaceSnapshot,
-  listPipelineJobs,
   saveProductionPlan,
   startPipelineRun,
   startPipelineRunFromSharedArtifacts,
@@ -45,23 +44,6 @@ export async function prepareUploadedHighlightsRun(
       ),
     };
   }
-  const active = (await listPipelineJobs(projectId)).find((job) =>
-    ["queued", "running"].includes(job.status),
-  );
-  if (active) {
-    return {
-      ok: false as const,
-      response: NextResponse.json(
-        {
-          error: "当前项目已有流水线任务正在执行",
-          data: active,
-          requestId,
-        },
-        { status: 409 },
-      ),
-    };
-  }
-
   const creativeSettings = await getCreativeSettings();
   const runId = `run-${crypto.randomUUID()}`;
   const duration =
@@ -123,8 +105,9 @@ export async function prepareUploadedHighlightsRun(
       : originalSourceIds.length > 0
         ? originalSourceIds
         : selectedHighlights.map((asset) => asset.id),
+    runId,
   );
-  await confirmProductionPlan(projectId);
+  await confirmProductionPlan(projectId, runId);
 
   return {
     ok: true as const,

@@ -9,6 +9,13 @@ import {
 } from "./production-config";
 
 describe("highlight parameter recommendations", () => {
+  it("uses the requested subtitle defaults", () => {
+    expect(defaultProductionConfig).toMatchObject({
+      subtitleFontSize: 52,
+      subtitlePosition: "bottom_center",
+    });
+  });
+
   it("distributes the global highlight total across story arcs", () => {
     expect(allocateHighlightOutputs(3, 3)).toEqual([1, 1, 1]);
     expect(allocateHighlightOutputs(8, 3)).toEqual([3, 3, 2]);

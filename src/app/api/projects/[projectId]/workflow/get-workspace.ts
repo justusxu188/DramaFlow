@@ -57,6 +57,7 @@ export async function getWorkflowWorkspace(
     )
     .map((run) => ({
       id: run.id,
+      sequence: run.sequence,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,

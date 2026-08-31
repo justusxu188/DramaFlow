@@ -6,14 +6,6 @@ import {
   productionEntries,
 } from "@/lib/production-config";
 
-export const characterAppearanceSchema = z.object({
-  id: z.string().min(1),
-  clipIndex: z.number().int().min(0),
-  sourceVideoIndex: z.number().int().min(0),
-  timestamp: z.number().min(0),
-  imageUrl: z.string().url(),
-});
-
 export const productionStartSchema = {
   sourceAssetIds: z.array(z.string().min(1)).min(1).max(30).optional(),
   prerollType: z.enum(prerollTypes).default("story_extended"),

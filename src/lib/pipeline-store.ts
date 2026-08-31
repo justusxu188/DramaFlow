@@ -124,45 +124,6 @@ export type CharacterBinding = {
   updatedAt: string;
 };
 
-function characterCandidatesFromAnalysis(
-  analysis: StorylineResult,
-  existing: CharacterBinding[],
-) {
-  const knownImages = new Set(
-    existing.flatMap((character) =>
-      character.appearances.map((appearance) => appearance.imageUrl),
-    ),
-  );
-  return analysis.clips
-    .filter(
-      (clip) =>
-        Boolean(clip.snapshotUrl) &&
-        !knownImages.has(clip.snapshotUrl ?? ""),
-    )
-    .slice(0, Math.max(0, 24 - existing.length))
-    .map((clip, index): CharacterBinding => {
-      const now = new Date().toISOString();
-      return {
-        id: `character-${crypto.randomUUID()}`,
-        name: `待确认人物 ${existing.length + index + 1}`,
-        role: "",
-        aliases: [],
-        status: "candidate",
-        appearances: [
-          {
-            id: `appearance-${crypto.randomUUID()}`,
-            clipIndex: clip.index,
-            sourceVideoIndex: clip.sourceVideoIndex,
-            timestamp: clip.start,
-            imageUrl: clip.snapshotUrl ?? "",
-          },
-        ],
-        referenceAssetIds: [],
-        updatedAt: now,
-      };
-    });
-}
-
 export type PipelineJobKind =
   | "analysis"
   | "highlight_analysis"
@@ -669,6 +630,7 @@ export function resolveCompositionVersion<
 
 export type PipelineRun = {
   id: string;
+  sequence?: number;
   projectId: string;
   sourceAssetIds: string[];
   status: string;
@@ -688,6 +650,42 @@ export type PipelineRun = {
   createdAt: string;
   updatedAt: string;
 };
+
+function isPipelineRunSequence(value: number | undefined): value is number {
+  return Number.isInteger(value) && (value ?? 0) > 0;
+}
+
+export function assignPipelineRunSequences(runs: PipelineRun[]) {
+  const used = new Set(
+    runs
+      .map((run) => run.sequence)
+      .filter(isPipelineRunSequence),
+  );
+  const unnumbered = runs
+    .filter((run) => !isPipelineRunSequence(run.sequence))
+    .sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id),
+    );
+  let sequence = 1;
+  for (const run of unnumbered) {
+    while (used.has(sequence)) sequence += 1;
+    run.sequence = sequence;
+    used.add(sequence);
+  }
+  return runs;
+}
+
+export function nextPipelineRunSequence(runs: PipelineRun[]) {
+  assignPipelineRunSequences(runs);
+  return runs.reduce(
+    (maximum, run) =>
+      isPipelineRunSequence(run.sequence)
+        ? Math.max(maximum, run.sequence)
+        : maximum,
+    0,
+  ) + 1;
+}
 
 export type ProductionPlanSnapshot = {
   productionConfig: ProductionConfig;
@@ -920,6 +918,7 @@ function emptyData(): PipelineData {
 
 function normalizeProjectRuns(project: PipelineProject) {
   project.runs ??= [];
+  assignPipelineRunSequences(project.runs);
   project.characters ??= [];
   project.highlightAnalyses ??= [];
   project.productionPlans ??= {};
@@ -1539,6 +1538,7 @@ export async function startPipelineRun(
     project.compositions = [];
     const run: PipelineRun = {
       id: runId,
+      sequence: nextPipelineRunSequence(project.runs ?? []),
       projectId,
       sourceAssetIds,
       status: project.status,
@@ -1581,6 +1581,7 @@ export async function startPipelineRunFromSharedArtifacts(
     const now = new Date().toISOString();
     const run: PipelineRun = {
       id: runId,
+      sequence: nextPipelineRunSequence(project.runs ?? []),
       projectId,
       sourceAssetIds,
       status: sharedArcs?.arcs.length
@@ -1791,26 +1792,6 @@ export async function activatePipelineRunById(
   });
 }
 
-export async function ensureCharacterCandidates(projectId: string) {
-  const current = await getPipelineProject(projectId);
-  if (!current?.analysis || current.characters.length > 0) {
-    return current;
-  }
-  return mutate((data) => {
-    const project = ensureProject(data, projectId);
-    if (!project.analysis || project.characters.length > 0) {
-      return project;
-    }
-    project.characters = characterCandidatesFromAnalysis(
-      project.analysis,
-      project.characters,
-    );
-    project.updatedAt = new Date().toISOString();
-    syncCurrentRun(project);
-    return project;
-  });
-}
-
 export function resolvePipelineWorkspaceProject(
   project: PipelineProject,
   productionEntry: ProductionConfig["productionEntry"],
@@ -1895,25 +1876,6 @@ export async function getPipelineWorkspaceSnapshot(
   const data = await readData();
   let project =
     data.projects.find((item) => item.projectId === projectId) ?? null;
-
-  if (project?.analysis && project.characters.length === 0) {
-    project = await mutate((currentData) => {
-      const currentProject = ensureProject(currentData, projectId);
-      if (
-        !currentProject.analysis ||
-        currentProject.characters.length > 0
-      ) {
-        return currentProject;
-      }
-      currentProject.characters = characterCandidatesFromAnalysis(
-        currentProject.analysis,
-        currentProject.characters,
-      );
-      currentProject.updatedAt = new Date().toISOString();
-      syncCurrentRun(currentProject);
-      return currentProject;
-    });
-  }
 
   if (project && productionEntry) {
     project = resolvePipelineWorkspaceProject(
@@ -2050,24 +2012,38 @@ export async function saveAnalysis(
   analysis: StorylineResult,
   planReviewRequired = false,
   sourceAssetIds: string[] = [],
+  runId?: string,
 ) {
   return mutate((data) => {
     const project = ensureProject(data, projectId);
+    const requestedRun = runId
+      ? project.runs?.find((run) => run.id === runId)
+      : undefined;
+    if (runId && !requestedRun) {
+      throw new Error("剧情理解任务所属生产批次不存在");
+    }
+    const targetRun =
+      requestedRun?.id !== project.currentRunId
+        ? requestedRun
+        : undefined;
+    const now = new Date().toISOString();
+    if (targetRun) {
+      targetRun.analysis = analysis;
+      targetRun.sourceAssetIds =
+        sourceAssetIds.length > 0
+          ? sourceAssetIds
+          : targetRun.sourceAssetIds;
+      targetRun.planReviewRequired = planReviewRequired;
+      targetRun.status =
+        planReviewRequired ? "plan_review" : "analysis_completed";
+      targetRun.updatedAt = now;
+      return targetRun;
+    }
     project.analysis = analysis;
-    const retainedCharacters = project.characters.filter(
-      (character) =>
-        character.status === "confirmed" &&
-        character.referenceAssetIds.length > 0,
-    );
-    const candidates = characterCandidatesFromAnalysis(
-      analysis,
-      retainedCharacters,
-    );
-    project.characters = [...retainedCharacters, ...candidates];
     project.analysisSourceAssetIds = sourceAssetIds;
     project.planReviewRequired = planReviewRequired;
     project.status = planReviewRequired ? "plan_review" : "analysis_completed";
-    project.updatedAt = new Date().toISOString();
+    project.updatedAt = now;
     syncCurrentRun(project);
     return project;
   });
@@ -2162,26 +2138,9 @@ export async function saveSharedStoryContext(
       throw new Error("共享剧情上下文所属生产批次不存在");
     }
     const now = new Date().toISOString();
-    const existingCharacters =
-      run.id === project.currentRunId
-        ? project.characters
-        : run.characters;
-    const retainedCharacters = existingCharacters.filter(
-      (character) =>
-        character.status === "confirmed" &&
-        character.referenceAssetIds.length > 0,
-    );
-    const characters = characterCandidatesFromAnalysis(
-      mergedAnalysis,
-      retainedCharacters,
-    );
     if (run.id === project.currentRunId) {
       project.sharedStoryContext = context;
       project.analysis = mergedAnalysis;
-      project.characters = [
-        ...retainedCharacters,
-        ...characters,
-      ];
       project.status = "analysis_completed";
       project.updatedAt = now;
       syncCurrentRun(project);
@@ -2189,38 +2148,38 @@ export async function saveSharedStoryContext(
     }
     run.sharedStoryContext = context;
     run.analysis = mergedAnalysis;
-    run.characters = [
-      ...retainedCharacters,
-      ...characters,
-    ];
     run.status = "analysis_completed";
     run.updatedAt = now;
     return run;
   });
 }
 
-export async function saveCharacterBindings(
+export async function confirmProductionPlan(
   projectId: string,
-  characters: CharacterBinding[],
+  runId?: string,
 ) {
   return mutate((data) => {
     const project = ensureProject(data, projectId);
-    project.characters = characters.map((character) => ({
-      ...character,
-      updatedAt: new Date().toISOString(),
-    }));
-    project.updatedAt = new Date().toISOString();
-    syncCurrentRun(project);
-    return project.characters;
-  });
-}
-
-export async function confirmProductionPlan(projectId: string) {
-  return mutate((data) => {
-    const project = ensureProject(data, projectId);
+    const requestedRun = runId
+      ? project.runs?.find((run) => run.id === runId)
+      : undefined;
+    if (runId && !requestedRun) {
+      throw new Error("待确认生产方案所属生产批次不存在");
+    }
+    const targetRun =
+      requestedRun?.id !== project.currentRunId
+        ? requestedRun
+        : undefined;
+    const now = new Date().toISOString();
+    if (targetRun) {
+      targetRun.planReviewRequired = false;
+      targetRun.status = "production_planned";
+      targetRun.updatedAt = now;
+      return targetRun;
+    }
     project.planReviewRequired = false;
     project.status = "production_planned";
-    project.updatedAt = new Date().toISOString();
+    project.updatedAt = now;
     syncCurrentRun(project);
     return project;
   });
@@ -2232,19 +2191,41 @@ export async function saveProductionPlan(
   highlightRecommendation: NonNullable<PipelineProject["highlightRecommendation"]>,
   prerollType?: PrerollType,
   sourceAssetIds: string[] = [],
+  runId?: string,
 ) {
   return mutate((data) => {
     const project = ensureProject(data, projectId);
+    const requestedRun = runId
+      ? project.runs?.find((run) => run.id === runId)
+      : undefined;
+    if (runId && !requestedRun) {
+      throw new Error("生产设置所属生产批次不存在");
+    }
+    const targetRun =
+      requestedRun?.id !== project.currentRunId
+        ? requestedRun
+        : undefined;
+    const now = new Date().toISOString();
+    if (targetRun) {
+      targetRun.productionConfig = productionConfig;
+      targetRun.highlightRecommendation = highlightRecommendation;
+      if (prerollType) targetRun.prerollType = prerollType;
+      if (sourceAssetIds.length > 0) {
+        targetRun.sourceAssetIds = sourceAssetIds;
+      }
+      targetRun.updatedAt = now;
+      return targetRun;
+    }
     if (!project.currentRunId) {
-      const now = new Date().toISOString();
-      const runId = `run-plan-${projectId}`;
-      project.currentRunId = runId;
+      const planRunId = `run-plan-${projectId}`;
+      project.currentRunId = planRunId;
       project.analysisSourceAssetIds = sourceAssetIds;
       project.status = "plan_saved";
       project.runs = [
         ...(project.runs ?? []),
         {
-          id: runId,
+          id: planRunId,
+          sequence: nextPipelineRunSequence(project.runs ?? []),
           projectId,
           sourceAssetIds,
           status: "plan_saved",
@@ -2262,7 +2243,7 @@ export async function saveProductionPlan(
     project.productionConfig = productionConfig;
     project.highlightRecommendation = highlightRecommendation;
     if (prerollType) project.prerollType = prerollType;
-    project.updatedAt = new Date().toISOString();
+    project.updatedAt = now;
     syncCurrentRun(project);
     return project;
   });

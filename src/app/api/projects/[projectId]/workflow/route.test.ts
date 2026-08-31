@@ -603,6 +603,35 @@ describe("project workflow source selection", () => {
           highlightMaxDuration: 120,
       }),
     }));
+    expect(mocks.runPipelineJobNow).toHaveBeenCalledWith("job-1");
+  });
+
+  it("starts a new source batch while another batch is running", async () => {
+    mocks.listPipelineJobs.mockResolvedValue([{
+      id: "job-existing",
+      runId: "run-existing",
+      kind: "analysis",
+      status: "running",
+      progress: 35,
+      input: { runId: "run-existing" },
+    }]);
+
+    const response = await POST(
+      request({ action: "run_full", sourceAssetIds: ["asset-2"] }),
+      { params: Promise.resolve({ projectId: "project-1" }) },
+    );
+
+    expect(response.status).toBe(202);
+    expect(mocks.startPipelineRun).toHaveBeenCalled();
+    expect(mocks.enqueuePipelineJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "analysis",
+        input: expect.objectContaining({
+          sourceAssetIds: ["asset-2"],
+        }),
+      }),
+    );
+    expect(mocks.runPipelineJobNow).toHaveBeenCalledWith("job-1");
   });
 
   it("starts batch highlights directly without storyline analysis", async () => {
@@ -633,6 +662,7 @@ describe("project workflow source selection", () => {
         mode: "montage",
         status: "queued",
       }),
+      expect.stringMatching(/^run-/),
     );
     expect(
       mocks.enqueuePipelineJob,
@@ -658,14 +688,23 @@ describe("project workflow source selection", () => {
         kind: "analysis",
       }),
     );
+    expect(mocks.runPipelineJobNow).toHaveBeenCalledWith("job-1");
   });
 
-  it("starts from selected highlight assets without source videos", async () => {
+  it("starts from selected highlight assets while another batch runs", async () => {
     mocks.enqueuePipelineJob.mockImplementation(
       async (input: { kind: string }) => ({
         id: `job-${input.kind}`,
       }),
     );
+    mocks.listPipelineJobs.mockResolvedValue([{
+      id: "job-existing",
+      runId: "run-existing",
+      kind: "analysis",
+      status: "running",
+      progress: 35,
+      input: { runId: "run-existing" },
+    }]);
     mocks.getProject.mockResolvedValue({
       ...project,
       assets: [],
@@ -1208,7 +1247,10 @@ describe("project workflow source selection", () => {
     );
 
     expect(response.status).toBe(202);
-    expect(mocks.confirmProductionPlan).toHaveBeenCalledWith("project-1");
+    expect(mocks.confirmProductionPlan).toHaveBeenCalledWith(
+      "project-1",
+      "run-current",
+    );
     expect(mocks.enqueuePipelineJob).toHaveBeenCalledWith(expect.objectContaining({
       projectId: "project-1",
       kind: "mine_arcs",
@@ -1476,6 +1518,8 @@ describe("project workflow source selection", () => {
           }),
           expect.any(Object),
           "strong_acquisition",
+          [],
+          "run-1",
         );
     });
 

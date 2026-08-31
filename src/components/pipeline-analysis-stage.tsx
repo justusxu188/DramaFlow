@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Film, RefreshCw } from "lucide-react";
 
 import type { PipelineAnalysis } from "@/components/pipeline-workspace-types";
@@ -8,7 +7,6 @@ type PipelineAnalysisStageProps = {
   sourceUnitLabel: string;
   reanalyzeDisabled: boolean;
   onReanalyze: () => void | Promise<void>;
-  characterWorkbench?: ReactNode;
 };
 
 export function PipelineAnalysisStage({
@@ -16,7 +14,6 @@ export function PipelineAnalysisStage({
   sourceUnitLabel,
   reanalyzeDisabled,
   onReanalyze,
-  characterWorkbench,
 }: PipelineAnalysisStageProps) {
   return (
     <div className="pipeline-section">
@@ -39,8 +36,6 @@ export function PipelineAnalysisStage({
           重新理解
         </button>
       </div>
-
-      {characterWorkbench}
 
       <div className="storyline-analysis">
         {analysis.sourceVideoInfo

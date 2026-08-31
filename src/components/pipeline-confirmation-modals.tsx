@@ -10,11 +10,15 @@ import {
 export function PipelineNewBatchConfirmationModal({
   open,
   starting,
+  hasActiveJobs,
+  hasChanges,
   onClose,
   onConfirm,
 }: {
   open: boolean;
   starting: boolean;
+  hasActiveJobs: boolean;
+  hasChanges: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }) {
@@ -42,7 +46,7 @@ export function PipelineNewBatchConfirmationModal({
           <div>
             <p className="eyebrow">NEW PRODUCTION</p>
             <h2 id="new-batch-title">
-              开始新的生产版本
+              新建生产批次
             </h2>
           </div>
           <button
@@ -56,14 +60,20 @@ export function PipelineNewBatchConfirmationModal({
         </div>
         <div className="script-delete-copy">
           <strong>
-            当前素材或生产设置与现有版本不同。
+            {hasActiveJobs
+              ? "现有生产批次仍在运行。"
+              : hasChanges
+                ? "当前素材或生产设置与现有批次不同。"
+                : "当前素材和生产设置与现有批次相同。"}
           </strong>
           <p>
-            点击“确认开始新生产”将固定当前素材和生产设置，
-            后续任务与产物归入新的生产版本。
+            点击“创建并开始”将冻结当前素材和生产设置，
+            立即提交独立批次运行。
           </p>
           <small>
-            旧版本的剧情理解、脚本与成片会继续保留，不会被覆盖或删除。
+            {hasActiveJobs
+              ? "现有任务不会停止；两个批次将按各自的 runId 并行执行。"
+              : "旧批次的剧情理解、脚本与成片会继续保留，不会被覆盖或删除。"}
           </small>
         </div>
         <div className="modal-actions">
@@ -87,7 +97,7 @@ export function PipelineNewBatchConfirmationModal({
             ) : (
               <Play size={15} />
             )}
-            {starting ? "启动中" : "确认开始新生产"}
+            {starting ? "启动中" : "创建并开始"}
           </button>
         </div>
       </div>

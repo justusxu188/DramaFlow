@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { workflowActionSchema } from "./schema";
 import { compileVideoPromptsActionSchema } from "./script-action-schemas";
 
 describe("script action schemas", () => {
@@ -20,5 +21,14 @@ describe("script action schemas", () => {
     expect(
       parsed.generationSettings?.[0].videoResolution,
     ).toBe("720p");
+  });
+
+  it("rejects the removed analysis character binding action", () => {
+    expect(
+      workflowActionSchema.safeParse({
+        action: "save_character_bindings",
+        characters: [],
+      }).success,
+    ).toBe(false);
   });
 });

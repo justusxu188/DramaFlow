@@ -1,4 +1,3 @@
-import { handleSaveCharacterBindings } from "./character-bindings-command";
 import type { WorkflowAction } from "./schema";
 import {
   handleScriptCrudCommand,
@@ -7,7 +6,6 @@ import {
 
 type SimpleCommandContext = {
   projectId: string;
-  projectName: string;
   requestId: string;
 };
 
@@ -16,8 +14,7 @@ export type SimpleWorkflowAction = Extract<
   {
     action:
       | ScriptCrudAction["action"]
-      | "open_preroll_script"
-      | "save_character_bindings";
+      | "open_preroll_script";
   }
 >;
 
@@ -30,7 +27,6 @@ export function isSimpleWorkflowAction(
     "update_script",
     "delete_script",
     "delete_scripts",
-    "save_character_bindings",
   ].includes(input.action);
 }
 
@@ -38,13 +34,6 @@ export async function handleSimpleWorkflowCommand(
   input: SimpleWorkflowAction,
   context: SimpleCommandContext,
 ) {
-  const { projectId, projectName, requestId } = context;
-  return input.action === "save_character_bindings"
-    ? handleSaveCharacterBindings(
-        input,
-        projectId,
-        projectName,
-        requestId,
-      )
-    : handleScriptCrudCommand(input, projectId, requestId);
+  const { projectId, requestId } = context;
+  return handleScriptCrudCommand(input, projectId, requestId);
 }

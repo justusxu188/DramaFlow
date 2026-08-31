@@ -6,6 +6,7 @@ import type {
   StartProductionAction,
   WorkflowProject,
 } from "./start-production-types";
+import { runPipelineJobNow } from "@/lib/pipeline-runner";
 import { normalizeProductionConfig } from "@/lib/production-config";
 import {
   enqueuePipelineJob,
@@ -42,7 +43,7 @@ export async function startSourceProduction(
       arcId: `batch-${runId}`,
       mode: "montage",
       status: "queued",
-    });
+    }, runId);
     const data = await enqueuePipelineJob({
       projectId,
       kind: "highlight",
@@ -57,6 +58,7 @@ export async function startSourceProduction(
         ...productionConfig,
       },
     });
+    void runPipelineJobNow(data.id);
     return NextResponse.json({ data, requestId }, { status: 202 });
   }
 
@@ -80,5 +82,6 @@ export async function startSourceProduction(
       ...productionConfig,
     },
   });
+  void runPipelineJobNow(data.id);
   return NextResponse.json({ data, requestId }, { status: 202 });
 }

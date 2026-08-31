@@ -12,7 +12,6 @@ import {
   recommendHighlightSettings,
 } from "@/lib/production-config";
 import {
-  listPipelineJobs,
   saveProductionPlan,
   startPipelineRun,
 } from "@/lib/pipeline-store";
@@ -95,23 +94,6 @@ export async function prepareSourceProduction(
     highlightMinDuration: durationRange.minDuration,
     highlightMaxDuration: durationRange.maxDuration,
   });
-  const active = (await listPipelineJobs(projectId)).find((job) =>
-    ["queued", "running"].includes(job.status),
-  );
-  if (active) {
-    return {
-      ok: false as const,
-      response: NextResponse.json(
-        {
-          error: "当前项目已有流水线任务正在执行",
-          data: active,
-          requestId,
-        },
-        { status: 409 },
-      ),
-    };
-  }
-
   const runId = `run-${crypto.randomUUID()}`;
   await startPipelineRun(
     projectId,
@@ -123,6 +105,8 @@ export async function prepareSourceProduction(
     productionConfig,
     linkedPlan,
     input.prerollType,
+    selectedAssets.map((asset) => asset.id),
+    runId,
   );
   return {
     ok: true as const,

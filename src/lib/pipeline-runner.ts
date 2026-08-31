@@ -293,20 +293,25 @@ async function processAnalysis(job: PipelineJob) {
     storedAnalysis.duration,
     productionConfig,
   );
+  const sourceAssetIds = Array.isArray(job.input.sourceAssetIds)
+    ? job.input.sourceAssetIds.filter(
+        (id): id is string => typeof id === "string",
+      )
+    : [];
   await saveAnalysis(
     job.projectId,
     storedAnalysis,
     value<boolean>(job.input, "autoRun") === false,
-    Array.isArray(job.input.sourceAssetIds)
-      ? job.input.sourceAssetIds.filter(
-          (id): id is string => typeof id === "string",
-        )
-      : [],
+    sourceAssetIds,
+    job.runId,
   );
   await saveProductionPlan(
     job.projectId,
     productionConfig,
     highlightRecommendation,
+    undefined,
+    sourceAssetIds,
+    job.runId,
   );
   await updatePipelineJob(job.id, {
     status: "completed",

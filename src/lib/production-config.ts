@@ -299,9 +299,9 @@ export const defaultProductionConfig: ProductionConfig = {
   videoModel: "seedance_2_5",
   generateSubtitles: false,
   subtitleFontType: "sy_black",
-  subtitleFontSize: 58,
+  subtitleFontSize: 52,
   subtitleFontColor: "#FFFFFFFF",
-  subtitlePosition: "center",
+  subtitlePosition: "bottom_center",
   videoResolution: "720p",
   videoRatio: "9:16",
   highlightContentType: "live_action",
@@ -353,9 +353,16 @@ export const productionConfigObjectSchema = z.object({
   videoModel: z.enum(videoModels).default("default"),
   generateSubtitles: z.boolean().default(false),
   subtitleFontType: z.enum(subtitleFontTypes).default("sy_black"),
-  subtitleFontSize: z.number().int().min(12).max(160).default(58),
+  subtitleFontSize: z
+    .number()
+    .int()
+    .min(12)
+    .max(160)
+    .default(defaultProductionConfig.subtitleFontSize),
   subtitleFontColor: z.string().default("#FFFFFFFF"),
-  subtitlePosition: z.enum(subtitlePositions).default("center"),
+  subtitlePosition: z
+    .enum(subtitlePositions)
+    .default(defaultProductionConfig.subtitlePosition),
   videoResolution: videoResolutionSchema.default("720p"),
   videoRatio: z.enum(videoRatios).default("9:16"),
   highlightContentType: z.enum(highlightContentTypes),
@@ -528,7 +535,12 @@ export function normalizeProductionConfig(
       defaultProductionConfig.subtitleFontType,
     ),
     subtitleFontSize: Math.round(
-      numberInRange(source.subtitleFontSize, 58, 12, 160),
+      numberInRange(
+        source.subtitleFontSize,
+        defaultProductionConfig.subtitleFontSize,
+        12,
+        160,
+      ),
     ),
     subtitleFontColor:
       typeof source.subtitleFontColor === "string" &&

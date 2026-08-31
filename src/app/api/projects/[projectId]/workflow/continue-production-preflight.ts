@@ -111,8 +111,10 @@ export async function prepareContinueProduction(
     productionConfig,
     linkedPlan,
     input.prerollType,
+    input.sourceAssetIds,
+    pipeline.currentRunId,
   );
-  await confirmProductionPlan(projectId);
+  await confirmProductionPlan(projectId, pipeline.currentRunId);
 
   return {
     ok: true as const,

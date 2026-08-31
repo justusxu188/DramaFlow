@@ -103,6 +103,34 @@ describe("long preroll segmentation", () => {
     ]);
   });
 
+    it("keeps decimal shot ranges positive after integer allocation", () => {
+      const shots = [
+        ["0.0-1.5", "镜头 1"],
+        ["1.5-3.0", "镜头 2"],
+        ["3.0-5.0", "镜头 3"],
+        ["5.0-7.0", "镜头 4"],
+        ["7.0-8.0", "镜头 5"],
+      ].map(([time, visual]) => ({
+        time,
+        framing: "中景",
+        visual,
+        dialogue: "",
+      }));
+
+      const [segment] = planVideoSegments(shots, 8, 15);
+
+      expect(segment.shotDurations).toHaveLength(5);
+      expect(
+        segment.shotDurations.every((duration) => duration >= 1),
+      ).toBe(true);
+      expect(
+        segment.shotDurations.reduce(
+          (sum, duration) => sum + duration,
+          0,
+        ),
+      ).toBe(8);
+    });
+
   it("removes aspect-ratio instructions from video prompt text", () => {
     expect(
       stripVideoRatioInstructions(

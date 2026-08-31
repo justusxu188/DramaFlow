@@ -17,7 +17,6 @@ import {
   openPrerollScriptActionSchema,
   regenerateScriptsActionSchema,
   retryActionSchema,
-  saveCharacterBindingsActionSchema,
   updateScriptActionSchema,
   updateVideoPromptActionSchema,
 } from "./script-action-schemas";
@@ -38,7 +37,6 @@ export const workflowActionSchema = z.discriminatedUnion("action", [
   compileVideoPromptsActionSchema,
   updateVideoPromptActionSchema,
   generatePrerollsActionSchema,
-  saveCharacterBindingsActionSchema,
   composePrerollActionSchema,
 ]);
 

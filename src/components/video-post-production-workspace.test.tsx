@@ -594,6 +594,16 @@ describe("video post-production workspace", () => {
       }),
     );
     await screen.findByLabelText("字幕 1");
+    expect(
+      (screen.getByLabelText(
+        "后期字幕字号",
+      ) as HTMLInputElement).value,
+    ).toBe("52");
+    expect(
+      (screen.getByLabelText(
+        "后期字幕位置",
+      ) as HTMLSelectElement).value,
+    ).toBe("bottom_center");
 
     fireEvent.change(
       screen.getByLabelText("后期字幕字体"),

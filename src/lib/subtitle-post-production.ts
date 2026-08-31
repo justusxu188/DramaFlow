@@ -128,9 +128,9 @@ export type SubtitleBurnStyle = {
 
 export const SUBTITLE_BURN_DEFAULTS: SubtitleBurnStyle = {
   fontType: "sy_black",
-  fontSize: 58,
+  fontSize: 52,
   fontColor: "#FFFFFFFF",
-  position: "center",
+  position: "bottom_center",
 };
 
 export function subtitleBurnStyleFromProductionConfig(

@@ -44,7 +44,7 @@ export async function handleContinueProduction(
         arcId: arc.id,
         mode: "montage",
         status: "queued",
-      });
+      }, sharedInput.runId);
       const job = await enqueuePipelineJob({
         projectId,
         kind: "highlight",

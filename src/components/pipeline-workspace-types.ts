@@ -54,6 +54,7 @@ export type PipelineData = {
   currentRunCreatedAt?: string;
   runs?: Array<{
     id: string;
+    sequence?: number;
     status: string;
     createdAt: string;
     updatedAt: string;

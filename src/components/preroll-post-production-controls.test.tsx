@@ -453,6 +453,16 @@ describe("preroll subtitle workflow", () => {
     expect(
       await within(dialog).findByDisplayValue("确认后再添加"),
     ).toBeTruthy();
+    expect(
+      (within(dialog).getByLabelText(
+        "前贴字幕字号",
+      ) as HTMLInputElement).value,
+    ).toBe("52");
+    expect(
+      (within(dialog).getByLabelText(
+        "前贴字幕位置",
+      ) as HTMLSelectElement).value,
+    ).toBe("bottom_center");
 
     await user.selectOptions(
       within(dialog).getByLabelText("前贴字幕字体"),

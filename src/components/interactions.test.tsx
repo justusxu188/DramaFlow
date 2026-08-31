@@ -399,7 +399,7 @@ describe("pipeline interactions", () => {
     );
 
     const start = await screen.findByRole("button", {
-      name: "开始新生产",
+      name: "新建生产批次",
     });
     expect(
       screen.queryByRole("button", {
@@ -409,7 +409,7 @@ describe("pipeline interactions", () => {
     await user.click(start);
     await user.click(
       screen.getByRole("button", {
-        name: "确认开始新生产",
+        name: "创建并开始",
       }),
     );
 
@@ -506,6 +506,142 @@ describe("pipeline interactions", () => {
         "sourceAssetIds",
       ),
     ).toBe(false);
+  });
+
+  it("separates continuing the current batch from creating a new batch", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockImplementation(async (_input, init) => {
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ data: {} }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: {
+            status: "analysis_completed",
+            currentRunId: "run-current",
+            currentRunCreatedAt: "2026-08-30T12:00:00.000Z",
+            analysisSourceAssetIds: ["asset-1"],
+            productionConfig: defaultProductionConfig,
+            analysis: {
+              duration: 600,
+              sourceVideoInfo: [],
+              clips: [],
+              highlights: [],
+            },
+            arcs: [],
+            highlights: [],
+            scripts: [],
+            renders: [],
+            compositions: [],
+          },
+          jobs: [],
+          settings: defaultProductionConfig,
+        }),
+      } as Response;
+    });
+
+    render(
+      <BatchPipelinePanel
+        projectId="project-real"
+        hasSources
+        selectedAssetIds={["asset-1"]}
+        selectedAssets={[{
+          id: "asset-1",
+          durationMs: 600000,
+        }]}
+        probingDurations={false}
+        sourceCount={1}
+      />,
+    );
+
+    const continueButton = await screen.findByRole("button", {
+      name: "继续当前批次",
+    });
+    const newBatchButton = screen.getByRole("button", {
+      name: "新建生产批次",
+    });
+    expect(continueButton.hasAttribute("disabled")).toBe(false);
+    expect(newBatchButton.hasAttribute("disabled")).toBe(false);
+
+    await user.click(continueButton);
+    expect(workflowPostBody("continue_production")).toMatchObject({
+      action: "continue_production",
+      sourceAssetIds: ["asset-1"],
+    });
+  });
+
+  it("shows a server concurrency error when a new batch is rejected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockImplementation(async (_input, init) => {
+      if (init?.method === "POST") {
+        return {
+          ok: false,
+          status: 429,
+          json: async () => ({
+            error: "服务端并发任务数已达到上限，请稍后重试",
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: {
+            status: "analysis_completed",
+            currentRunId: "run-current",
+            productionConfig: defaultProductionConfig,
+            analysisSourceAssetIds: ["asset-1"],
+            analysis: {
+              duration: 600,
+              sourceVideoInfo: [],
+              clips: [],
+              highlights: [],
+            },
+            arcs: [],
+            highlights: [],
+            scripts: [],
+            renders: [],
+            compositions: [],
+          },
+          jobs: [],
+          settings: defaultProductionConfig,
+        }),
+      } as Response;
+    });
+
+    render(
+      <BatchPipelinePanel
+        projectId="project-real"
+        hasSources
+        selectedAssetIds={["asset-1"]}
+        selectedAssets={[{
+          id: "asset-1",
+          durationMs: 600000,
+        }]}
+        probingDurations={false}
+        sourceCount={1}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "新建生产批次",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "创建并开始",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "服务端并发任务数已达到上限，请稍后重试",
+      ),
+    ).toBeTruthy();
   });
 
   it("explains project episode reuse in highlight-preroll production", async () => {
@@ -644,7 +780,7 @@ describe("pipeline interactions", () => {
     );
     expect(
       screen.getByRole("button", {
-        name: "开始新生产",
+        name: "新建生产批次",
       }),
     ).toBeTruthy();
     expect(
@@ -802,7 +938,12 @@ describe("pipeline interactions", () => {
     ).toBeTruthy();
     await user.click(
       screen.getByRole("button", {
-        name: "开始批量高光剪辑",
+        name: "新建生产批次",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "创建并开始",
       }),
     );
     expect(workflowPostBody()).toMatchObject({
@@ -943,25 +1084,21 @@ describe("pipeline interactions", () => {
     expect(start.hasAttribute("disabled")).toBe(false);
     await user.click(start);
 
-    // Selection changed since the last analysis → confirm the new batch.
-    const confirm = await screen.findByRole("button", {
-      name: "确认开始新生产",
-    });
-    await user.click(confirm);
-
     expect(workflowPostBody()).toMatchObject({
       action: "run_full",
       sourceAssetIds: ["asset-1", "asset-2"],
     });
   });
 
-  it("shows the current material analysis progress", async () => {
+  it("allows a new production batch while the current batch runs", async () => {
+    const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
         data: {
           status: "analysis_queued",
           currentRunId: "run-current",
+          productionConfig: defaultProductionConfig,
           arcs: [],
           highlights: [],
           scripts: [],
@@ -981,6 +1118,7 @@ describe("pipeline interactions", () => {
           status: "completed",
           progress: 100,
         }],
+        settings: defaultProductionConfig,
       }),
     } as Response);
 
@@ -998,9 +1136,22 @@ describe("pipeline interactions", () => {
       />,
     );
 
-    expect(await screen.findByRole("button", {
-      name: "剧情理解中",
-    })).toBeTruthy();
+    const newBatchButton = await screen.findByRole("button", {
+      name: "新建生产批次",
+    });
+    await waitFor(() =>
+      expect(newBatchButton.hasAttribute("disabled")).toBe(false)
+    );
+    await user.click(newBatchButton);
+    await user.click(
+      screen.getByRole("button", {
+        name: "创建并开始",
+      }),
+    );
+    expect(workflowPostBody("run_full")).toMatchObject({
+      action: "run_full",
+      sourceAssetIds: ["asset-1", "asset-2"],
+    });
   });
 
   it("shows uploaded-highlight analysis jobs in the storyline stage", async () => {
@@ -1162,7 +1313,7 @@ describe("pipeline interactions", () => {
     expect(snapshot.hidden).toBe(true);
   });
 
-  it("shows pending character confirmation without blocking later stages", async () => {
+  it("does not show the legacy character asset workbench in analysis", async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -1232,26 +1383,9 @@ describe("pipeline interactions", () => {
     await userEvent.setup().click(
       await screen.findByRole("tab", { name: /剧情理解/ }),
     );
-    expect(screen.getByText(/1 个人物 · 0 已确认 · 1 待处理/)).toBeTruthy();
-    expect(screen.getByText("不阻塞后续生产，生视频时再关联图片")).toBeTruthy();
-    const candidate = screen.getByAltText(
-      "待确认人物 1 候选画面",
-    ) as HTMLImageElement;
-    fireEvent.error(candidate);
-    expect(candidate.hidden).toBe(true);
-    expect(
-      screen.getByLabelText("待确认人物 1 源视频画面")
-        .getAttribute("src"),
-    ).toBe("https://example.com/source.mp4#t=0.1");
-    expect(
-      screen.getByText("旧关键帧已失效，请重新进行剧情理解"),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("radio", {
-        name: "设为 待确认人物 1 标准参考图",
-      })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    expect(screen.getByText("剧情摘要")).toBeTruthy();
+    expect(screen.queryByText("人物资产")).toBeNull();
+    expect(screen.queryByText("待确认人物 1")).toBeNull();
     expect(
       screen.getByRole("tab", { name: /爽点故事线/ }).hasAttribute("disabled"),
     ).toBe(false);
@@ -3163,6 +3297,7 @@ describe("pipeline interactions", () => {
     const runs = [
       {
         id: "run-newer",
+        sequence: 2,
         status: "scripts_ready",
         createdAt: "2026-08-21T17:10:00.000Z",
         updatedAt: "2026-08-21T17:10:00.000Z",
@@ -3170,6 +3305,7 @@ describe("pipeline interactions", () => {
       },
       {
         id: "run-older",
+        sequence: 1,
         status: "scripts_ready",
         createdAt: "2026-08-20T08:00:00.000Z",
         updatedAt: "2026-08-20T08:00:00.000Z",
@@ -3235,12 +3371,148 @@ describe("pipeline interactions", () => {
       name: "切换生产批次",
     }) as HTMLSelectElement;
     expect(runSelect.value).toBe("run-newer");
+    expect(
+      screen.getByRole("option", {
+        name: "2026-08-22 01:10 · 0002",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("option", {
+        name: "2026-08-20 16:00 · 0001",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/run-newer|newer$/)).toBeNull();
 
     await user.selectOptions(runSelect, "run-older");
 
     await waitFor(() => {
       expect(runSelect.value).toBe("run-older");
     });
+  });
+
+  it("shows the highlight video frozen into the selected production batch", async () => {
+    const user = userEvent.setup();
+    let activeRunId = "run-newer";
+    const productionConfigs = {
+      "run-newer": {
+        ...defaultProductionConfig,
+        productionEntry: "uploaded_highlights" as const,
+        selectedHighlightAssetIds: ["highlight-newer"],
+      },
+      "run-older": {
+        ...defaultProductionConfig,
+        productionEntry: "uploaded_highlights" as const,
+        selectedHighlightAssetIds: ["highlight-older"],
+      },
+    };
+    const runs = [
+      {
+        id: "run-newer",
+        status: "scripts_ready",
+        createdAt: "2026-08-30T02:25:00.000Z",
+        updatedAt: "2026-08-30T02:25:00.000Z",
+        sourceAssetCount: 1,
+      },
+      {
+        id: "run-older",
+        status: "scripts_ready",
+        createdAt: "2026-08-28T03:39:00.000Z",
+        updatedAt: "2026-08-28T03:39:00.000Z",
+        sourceAssetCount: 1,
+      },
+    ];
+    vi.mocked(fetch).mockImplementation(
+      async (_input, init) => {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as {
+            action: string;
+            runId: keyof typeof productionConfigs;
+          };
+          activeRunId = body.runId;
+          return {
+            ok: true,
+            json: async () => ({
+              data: { currentRunId: activeRunId },
+            }),
+          } as Response;
+        }
+        const activeRun = runs.find(
+          (run) => run.id === activeRunId,
+        )!;
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              status: activeRun.status,
+              currentRunId: activeRun.id,
+              currentRunCreatedAt: activeRun.createdAt,
+              runs,
+              productionConfig:
+                productionConfigs[
+                  activeRun.id as keyof typeof productionConfigs
+                ],
+              nextProductionPlan: {
+                productionConfig: productionConfigs["run-newer"],
+              },
+              arcs: [],
+              highlights: [],
+              scripts: [],
+              renders: [],
+              compositions: [],
+            },
+            jobs: [],
+            settings: defaultProductionConfig,
+          }),
+        } as Response;
+      },
+    );
+
+    render(
+      <BatchPipelinePanel
+        projectId="project-real"
+        workType={parseCreativeWorkType(
+          "highlight-preroll",
+        )}
+        hasSources={false}
+        highlightAssets={[
+          {
+            id: "highlight-newer",
+            name: "0821-最新批次.mp4",
+            sourceUrl: "https://example.com/newer.mp4",
+            durationMs: 60000,
+            metadata: { sourceType: "user" },
+          },
+          {
+            id: "highlight-older",
+            name: "0819-历史批次.mp4",
+            sourceUrl: "https://example.com/older.mp4",
+            durationMs: 60000,
+            metadata: { sourceType: "user" },
+          },
+        ]}
+        selectedAssetIds={[]}
+        selectedAssets={[]}
+        probingDurations={false}
+        sourceCount={0}
+      />,
+    );
+
+    expect(
+      await screen.findByText("0821-最新批次.mp4"),
+    ).toBeTruthy();
+    await user.selectOptions(
+      screen.getByRole("combobox", {
+        name: "切换生产批次",
+      }),
+      "run-older",
+    );
+
+    expect(
+      await screen.findByText("0819-历史批次.mp4"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("0821-最新批次.mp4"),
+    ).toBeNull();
   });
 
   it("keeps a preroll stage with failures out of the completed state", async () => {

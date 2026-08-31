@@ -5,11 +5,11 @@ import {
   AlertCircle,
   LoaderCircle,
   Play,
+  Plus,
   Save,
   Sparkles,
 } from "lucide-react";
 import { PipelineAnalysisStage } from "@/components/pipeline-analysis-stage";
-import { PipelineCharacterWorkbench } from "@/components/pipeline-character-workbench";
 import {
   PipelineNewBatchConfirmationModal,
   PipelineScriptDeleteConfirmationModal,
@@ -113,6 +113,12 @@ function formatProductionVersion(createdAt?: string) {
   return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}`;
 }
 
+function formatProductionRunSequence(sequence?: number) {
+  return Number.isInteger(sequence) && (sequence ?? 0) > 0
+    ? String(sequence).padStart(4, "0")
+    : "----";
+}
+
 type WorkspaceStage = ProductionWorkspaceStage;
 
 const workspaceStages: Array<{
@@ -202,6 +208,7 @@ export function BatchPipelinePanel({
   const [targetDurationInput, setTargetDurationInput] = useState("");
   const [targetCountInput, setTargetCountInput] = useState("");
   const settingsLoaded = useRef(false);
+  const loadActiveRunConfig = useRef(false);
   const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([]);
   const [savingScript, setSavingScript] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState<{
@@ -347,7 +354,9 @@ export function BatchPipelinePanel({
         const nextPlan =
           payload.data?.nextProductionPlan;
         const persistedConfig =
-          nextPlan?.productionConfig ??
+          (loadActiveRunConfig.current
+            ? payload.data?.productionConfig
+            : nextPlan?.productionConfig) ??
           payload.data?.productionConfig;
         const workflowConfig =
           persistedConfig?.productionEntry ===
@@ -388,6 +397,7 @@ export function BatchPipelinePanel({
           String(loadedConfig.highlightTargetCount),
         );
         settingsLoaded.current = true;
+        loadActiveRunConfig.current = false;
       }
       setError("");
     } catch (reason) {
@@ -901,7 +911,9 @@ export function BatchPipelinePanel({
     configurationDiffersFromCurrentBatch,
   });
 
-  async function start() {
+  async function start(
+    action: "run_full" | "continue_production",
+  ) {
     if (!hasValidProductionInput) {
       setError(
         usesUploadedHighlights
@@ -916,7 +928,7 @@ export function BatchPipelinePanel({
       await postProjectWorkflow(
         projectId,
         {
-          action: startIntent.action ?? "run_full",
+          action,
           sourceAssetIds: usesUploadedHighlights
             ? undefined
             : selectedAssetIds,
@@ -930,7 +942,9 @@ export function BatchPipelinePanel({
       setPlanMessage(
         usesBatchHighlights
           ? "批量高光剪辑已启动，完成后将自动保存到素材库。"
-          : "生产设置已保存并用于本次生产。",
+          : action === "run_full"
+            ? "新生产批次已创建并提交运行。"
+            : "当前生产批次已继续执行。",
       );
       await refresh();
     } catch (reason) {
@@ -960,6 +974,7 @@ export function BatchPipelinePanel({
         },
         "切换生产批次失败",
       );
+      loadActiveRunConfig.current = true;
       settingsLoaded.current = false;
       setPlanDirty(false);
       setPlanMessage("");
@@ -977,19 +992,17 @@ export function BatchPipelinePanel({
     }
   }
 
-  // Gate the raw start() behind an explicit confirmation when it would
-  // freeze a new batch, then run it once the user confirms.
-  function handleStartClick() {
-    if (startIntent.needsConfirm) {
+  function handleNewBatchClick() {
+    if (pipeline?.currentRunId) {
       setConfirmNewBatch(true);
       return;
     }
-    void start();
+    void start("run_full");
   }
 
   async function confirmStartNewBatch() {
     setConfirmNewBatch(false);
-    await start();
+    await start("run_full");
   }
 
   async function retry(jobId: string) {
@@ -1488,43 +1501,6 @@ export function BatchPipelinePanel({
     }
   }
 
-  async function saveCharacters(
-    characters: PipelineData["characters"],
-  ): Promise<PipelineData["characters"] | null> {
-    setError("");
-    try {
-      const payload = await postProjectWorkflow<{
-        data?: PipelineData["characters"];
-        imageAssets?: CharacterImageAsset[];
-        error?: string;
-      }>(
-        projectId,
-        {
-          action: "save_character_bindings",
-          characters,
-        },
-        "人物绑定保存失败",
-      );
-      if (!payload.data) {
-        throw new Error("人物绑定保存失败");
-      }
-      setImageAssets(payload.imageAssets ?? imageAssets);
-      setPipeline((current) =>
-        current
-          ? { ...current, characters: payload.data! }
-          : current,
-      );
-      return payload.data;
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "人物绑定保存失败",
-      );
-      return null;
-    }
-  }
-
   function dismissFailedJob(job: PipelineJob) {
     const token = `${job.id}:${job.updatedAt}`;
     setDismissedFailedJobIds((current) => {
@@ -1694,23 +1670,47 @@ export function BatchPipelinePanel({
                 </button>
                 </>
               )}
+              {startIntent.mode === "continue" && (
+                <button
+                  type="button"
+                  className="button ghost"
+                  data-intent="continue-current-batch"
+                  disabled={
+                    !hasValidProductionInput ||
+                    starting ||
+                    activeJobs.length > 0
+                  }
+                  onClick={() =>
+                    void start("continue_production")
+                  }
+                >
+                  {starting ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Play size={16} />
+                  )}
+                  继续当前批次
+                </button>
+              )}
               <button
                 type="button"
                 className="button primary"
-                data-intent={startIntent.label}
-                disabled={
-                  !hasValidProductionInput ||
-                  starting ||
-                  activeJobs.length > 0
-                }
-                onClick={handleStartClick}
+                data-intent="new-production-batch"
+                disabled={!hasValidProductionInput || starting}
+                onClick={handleNewBatchClick}
               >
                 {starting ? (
                   <LoaderCircle className="spin" size={16} />
+                ) : pipeline?.currentRunId ? (
+                  <Plus size={16} />
                 ) : (
                   <Play size={16} />
                 )}
-                {startIntent.label}
+                {starting
+                  ? "启动中"
+                  : pipeline?.currentRunId
+                    ? "新建生产批次"
+                    : startIntent.label}
               </button>
             </div>
             <label className="production-version-summary">
@@ -1739,7 +1739,7 @@ export function BatchPipelinePanel({
                   <option key={run.id} value={run.id}>
                     {formatProductionVersion(run.createdAt)}
                     {" · "}
-                    {run.id.slice(-6)}
+                    {formatProductionRunSequence(run.sequence)}
                   </option>
                 ))}
               </select>
@@ -1811,13 +1811,6 @@ export function BatchPipelinePanel({
             selectedAssetIds.length === 0
           }
           onReanalyze={reanalyzeProject}
-          characterWorkbench={
-            <PipelineCharacterWorkbench
-              characters={pipeline.characters}
-              sourceVideoInfo={pipeline.analysis.sourceVideoInfo}
-              onSave={saveCharacters}
-            />
-          }
         />
       )}
 
@@ -1946,6 +1939,11 @@ export function BatchPipelinePanel({
       <PipelineNewBatchConfirmationModal
         open={confirmNewBatch}
         starting={starting}
+        hasActiveJobs={activeJobs.length > 0}
+        hasChanges={
+          selectionDiffersFromCurrentBatch ||
+          configurationDiffersFromCurrentBatch
+        }
         onClose={() => setConfirmNewBatch(false)}
         onConfirm={() => void confirmStartNewBatch()}
       />
