@@ -1,0 +1,51 @@
+[Unit]
+Description=DramaFlow Short Drama Studio (Real Mode)
+Documentation=https://github.com/justusxu188/DramaFlow/tree/main/deploy/real-mode
+After=network.target nginx.service remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Low-privilege runtime user (created by deploy-real-mode.sh).
+User=__DEPLOY_USER__
+Group=__DEPLOY_GROUP__
+WorkingDirectory=__DEPLOY_DIR__
+
+# EnvironmentFile is the ONLY source of credentials. Do NOT commit credentials to
+# the git tree or write a .env.local under __DEPLOY_DIR__.
+EnvironmentFile=__ENV_FILE__
+# Hardcoded runtime flags. Overriding PERSISTENCE_MODE here keeps deployments
+# consistent with the documented "JSON local store" default shape.
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=APP_BASE_URL=http://127.0.0.1:3000
+Environment=WORKER_INTERVAL_MS=3000
+Environment=PERSISTENCE_MODE=local
+Environment=NEXT_TELEMETRY_DISABLED=1
+
+# The app package.json `start` script forwards to scripts/run-with-worker.mjs
+# which boots the Next.js HTTP server + the pipeline worker in a single process
+# tree. This means restarting frameflow.service restarts BOTH cleanly.
+ExecStart=/usr/bin/env npm start
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=3
+RestartPreventExitStatus=SIGKILL
+
+# Resource / isolation baseline. Adjust for your server size.
+LimitNOFILE=65536
+LimitNPROC=4096
+OOMScoreAdjust=-500
+
+# Allow tmp writes and block some dangerous syscalls for defence-in-depth.
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=__DEPLOY_DIR__/data __DEPLOY_DIR__/.next __DEPLOY_DIR__/node_modules
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
