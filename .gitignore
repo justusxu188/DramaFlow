@@ -10,4 +10,5 @@ coverage
 short-drama-material-plan.pptx
 public/real-demo/*.mp4
 public/real-demo/result.json
-data/project-store.json
+data/*.json
+tsconfig.tsbuildinfo
