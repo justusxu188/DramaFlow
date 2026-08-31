@@ -36,6 +36,14 @@ vi.mock("@/lib/project-store", () => ({
     mocks.updateImageAssetMetadata,
 }));
 
+vi.mock("@/lib/authorization", () => ({
+  authenticatedApiUser: async () => ({
+    user: { id: "user-1", role: "user" },
+    response: null,
+  }),
+  authorizedProject: async () => ({ id: "project-1" }),
+}));
+
 import { POST } from "./route";
 
 const context = {

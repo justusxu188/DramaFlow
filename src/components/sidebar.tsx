@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   usePathname,
+  useRouter,
   useSearchParams,
 } from "next/navigation";
 import {
@@ -12,12 +13,16 @@ import {
   Film,
   FolderKanban,
   Gauge,
+  LogOut,
   Settings,
+  UserRound,
 } from "lucide-react";
 import { creativeWorkTypes } from "@/lib/creative-work-types";
+import type { AppUser } from "@/lib/user-store";
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: AppUser }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const activeProjectWorkType =
     pathname.startsWith("/projects/")
@@ -151,10 +156,31 @@ export function Sidebar() {
       </nav>
 
       <div className="sidebar-bottom">
-        <Link href="/settings" className={`nav-item ${pathname === "/settings" ? "active" : ""}`}>
-          <Settings size={18} />
-          <span>系统设置</span>
-        </Link>
+        {user.role === "admin" && (
+          <Link href="/settings" className={`nav-item ${pathname === "/settings" ? "active" : ""}`}>
+            <Settings size={18} />
+            <span>系统设置</span>
+          </Link>
+        )}
+        <div className="sidebar-user">
+          <UserRound size={18} />
+          <span>
+            <strong>{user.name}</strong>
+            <small>{user.role === "admin" ? "管理员" : "普通用户"}</small>
+          </span>
+          <button
+            type="button"
+            title="退出登录"
+            aria-label="退出登录"
+            onClick={async () => {
+              await fetch("/api/auth/logout", { method: "POST" });
+              router.replace("/login");
+              router.refresh();
+            }}
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     </aside>
   );

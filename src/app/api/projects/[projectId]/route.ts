@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
-import { getProject } from "@/lib/project-store";
 import { listPipelineRuns } from "@/lib/pipeline-store";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 export async function GET(
   request: Request,
   context: { params: Promise<{ projectId: string }> },
 ) {
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
   const { projectId } = await context.params;
-  const data = await getProject(projectId);
+  const data = await authorizedProject(projectId, auth.user);
   if (!data) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }

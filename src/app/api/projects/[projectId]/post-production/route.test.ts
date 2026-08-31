@@ -75,6 +75,16 @@ vi.mock("@/lib/project-store", () => ({
   getProject: mocks.getProject,
 }));
 
+vi.mock("@/lib/authorization", () => ({
+  authenticatedApiUser: async () => ({
+    user: { id: "user-1", role: "user" },
+    response: null,
+  }),
+  authorizedProject: (
+    projectId: string,
+  ) => mocks.getProject(projectId),
+}));
+
 vi.mock("@/lib/tos", () => ({
   transferRemoteFileToTos:
     mocks.transferRemoteFileToTos,

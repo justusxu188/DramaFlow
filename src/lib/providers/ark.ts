@@ -1759,27 +1759,31 @@ export class ArkCreativeProvider
     genre: string;
     count?: number;
   }) {
-    const result = await this.chatJson<{ arcs: StoryArc[] }>([
-      {
-        role: "system",
-        content:
-          "你是短剧投流策略专家。只输出 JSON 对象，顶层字段 arcs。每项必须包含 id、title、pitch、audience(male|female|general)、payoffType、conflict、hookType、prerollType、evidenceClipIndexes、highlightPrompt、scores(relevance,visuality,novelty,risk，均0-100)。共享剧集上下文只用于识别人物、关系、世界观和视觉风格，不是剧情证据。只能引用输入 clips 中存在的 clip_index；任何事件、对白、因果和结果必须由当前高光 clips 直接证明，不得从其他高光补入。优先提炼强冲突、身份反差、金手指、打脸、复仇、生死危机等适合投流的差异化故事线。",
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          genre: input.genre,
-          targetCount: input.count ?? 3,
-          sharedStoryContext:
-            compactSharedStoryContext(
-              input.sharedStoryContext,
-            ),
-          sourceVideoInfo: input.analysis.sourceVideoInfo,
-          clips: input.analysis.clips,
-          providerHighlights: input.analysis.highlights,
-        }),
-      },
-    ]);
+    const result = await this.chatJson<{ arcs: StoryArc[] }>(
+      [
+        {
+          role: "system",
+          content:
+            "你是短剧投流策略专家。只输出 JSON 对象，顶层字段 arcs。每项必须包含 id、title、pitch、audience(male|female|general)、payoffType、conflict、hookType、prerollType、evidenceClipIndexes、highlightPrompt、scores(relevance,visuality,novelty,risk，均0-100)。共享剧集上下文只用于识别人物、关系、世界观和视觉风格，不是剧情证据。只能引用输入 clips 中存在的 clip_index；任何事件、对白、因果和结果必须由当前高光 clips 直接证明，不得从其他高光补入。优先提炼强冲突、身份反差、金手指、打脸、复仇、生死危机等适合投流的差异化故事线。",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            genre: input.genre,
+            targetCount: input.count ?? 3,
+            sharedStoryContext:
+              compactSharedStoryContext(
+                input.sharedStoryContext,
+              ),
+            sourceVideoInfo: input.analysis.sourceVideoInfo,
+            clips: input.analysis.clips,
+            providerHighlights: input.analysis.highlights,
+          }),
+        },
+      ],
+      0.7,
+      "medium",
+    );
     const validClipIndexes = new Set(input.analysis.clips.map((clip) => clip.index));
     const candidates = result.arcs
       .slice(0, input.count ?? 3)
@@ -1809,6 +1813,7 @@ export class ArkCreativeProvider
         },
       ],
       0.1,
+      "medium",
     );
 
     return grounded.arcs

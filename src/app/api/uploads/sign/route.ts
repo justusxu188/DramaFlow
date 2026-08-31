@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getProject } from "@/lib/project-store";
 import { createTosUploadUrl } from "@/lib/tos";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 const uploadSchema = z.object({
   projectId: z.string().min(3).max(100),
@@ -22,8 +25,13 @@ const uploadSchema = z.object({
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   try {
+    const auth = await authenticatedApiUser();
+    if (!auth.user || auth.response) return auth.response;
     const input = uploadSchema.parse(await request.json());
-    const project = await getProject(input.projectId);
+    const project = await authorizedProject(
+      input.projectId,
+      auth.user,
+    );
     if (!project) {
       return NextResponse.json(
         { error: "项目不存在", requestId },

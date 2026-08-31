@@ -67,6 +67,78 @@ function latestJobByInputId(
   return result;
 }
 
+function sourceAssetIdFromHighlightId(highlightId: string) {
+  const prefix = "highlight-upload-";
+  return highlightId.startsWith(prefix)
+    ? highlightId.slice(prefix.length)
+    : "";
+}
+
+function highlightPreparationCopy(
+  highlight: PipelineData["highlights"][number],
+  transitionJob?: PipelineJob,
+  arcJob?: PipelineJob,
+) {
+  if (highlight.anchor?.openingSummary) {
+    return {
+      summary: highlight.anchor.openingSummary,
+      empty: "尚未生成关联脚本",
+      failed: false,
+    };
+  }
+  if (transitionJob?.status === "failed") {
+    return {
+      summary: `开头理解失败：${
+        transitionJob.error ?? "任务执行失败"
+      }`,
+      empty: "开头理解失败，暂时无法生成脚本",
+      failed: true,
+    };
+  }
+  if (transitionJob?.status === "running") {
+    return {
+      summary: `正在理解开头 · ${transitionJob.progress}%`,
+      empty: "高光开头理解完成后可生成脚本",
+      failed: false,
+    };
+  }
+  if (transitionJob?.status === "queued") {
+    return {
+      summary: "等待理解开头",
+      empty: "高光开头理解完成后可生成脚本",
+      failed: false,
+    };
+  }
+  if (arcJob?.status === "failed") {
+    return {
+      summary: `爽点故事线生成失败：${
+        arcJob.error ?? "任务执行失败"
+      }`,
+      empty: "爽点故事线生成失败，暂时无法生成脚本",
+      failed: true,
+    };
+  }
+  if (
+    arcJob &&
+    ["queued", "running"].includes(arcJob.status)
+  ) {
+    return {
+      summary: `正在生成爽点故事线 · ${arcJob.progress}%`,
+      empty: "爽点故事线完成后可生成脚本",
+      failed: false,
+    };
+  }
+  return {
+    summary: highlight.arcId
+      ? "等待理解开头"
+      : "尚未生成爽点故事线",
+    empty: highlight.arcId
+      ? "高光开头理解完成后可生成脚本"
+      : "爽点故事线生成后可生成脚本",
+    failed: false,
+  };
+}
+
 export function PipelineScriptWorkspace({
   pipeline,
   highlightAssets = [],
@@ -85,6 +157,7 @@ export function PipelineScriptWorkspace({
   onConfirmSelectedScripts,
   onConfirmScript,
   onGoToPrerolls,
+  onGoToStoryArcs,
   onSaveScript,
 }: {
   pipeline: PipelineData;
@@ -107,6 +180,7 @@ export function PipelineScriptWorkspace({
   onConfirmSelectedScripts: () => void;
   onConfirmScript: (scriptId: string) => void;
   onGoToPrerolls: (scriptId: string) => void;
+  onGoToStoryArcs: () => void;
   onSaveScript: (
     script: PipelineScript,
   ) => Promise<boolean>;
@@ -130,6 +204,12 @@ export function PipelineScriptWorkspace({
       effectiveCurrentJobs,
       "transition",
       "highlightId",
+    );
+  const latestArcJobBySourceAsset =
+    latestJobByInputId(
+      effectiveCurrentJobs,
+      "mine_arcs",
+      "sourceHighlightAssetId",
     );
   const activeHighlight =
     pipeline.highlights.find(
@@ -171,8 +251,16 @@ export function PipelineScriptWorkspace({
     latestTransitionJobByHighlight.get(
       resolvedActiveHighlightId,
     );
+  const activeLatestArcJob =
+    latestArcJobBySourceAsset.get(
+      sourceAssetIdFromHighlightId(
+        resolvedActiveHighlightId,
+      ),
+    );
   const canRetryActiveTransition =
     activeLatestTransitionJob?.status === "failed";
+  const canRetryActiveArc =
+    activeLatestArcJob?.status === "failed";
   const isSubmittingActiveScripts =
     regeneratingHighlightId ===
     resolvedActiveHighlightId;
@@ -367,9 +455,17 @@ export function PipelineScriptWorkspace({
               disabled={
                 isSubmittingActiveScripts ||
                 (!activeHighlight?.anchor &&
-                  !canRetryActiveTransition)
+                  !canRetryActiveTransition &&
+                  !canRetryActiveArc)
               }
               onClick={() => {
+                if (
+                  canRetryActiveArc &&
+                  !activeHighlight?.anchor
+                ) {
+                  onGoToStoryArcs();
+                  return;
+                }
                 setPendingGeneratedScripts({
                   highlightId: resolvedActiveHighlightId,
                   existingScriptIds: activeHighlightScripts.map(
@@ -390,6 +486,9 @@ export function PipelineScriptWorkspace({
               {canRetryActiveTransition &&
               !activeHighlight?.anchor
                 ? "重试开头理解并生成脚本"
+                : canRetryActiveArc &&
+                    !activeHighlight?.anchor
+                  ? "前往爽点故事线重试"
                 : "AI 生成脚本"}
             </button>
             <button
@@ -478,6 +577,18 @@ export function PipelineScriptWorkspace({
                 (script) =>
                   script.highlightId === highlight.id,
               );
+              const preparation =
+                highlightPreparationCopy(
+                  highlight,
+                  latestTransitionJobByHighlight.get(
+                    highlight.id,
+                  ),
+                  latestArcJobBySourceAsset.get(
+                    sourceAssetIdFromHighlightId(
+                      highlight.id,
+                    ),
+                  ),
+                );
               return (
                 <article
                   className="highlight-script-group"
@@ -489,13 +600,14 @@ export function PipelineScriptWorkspace({
                         当前脚本关联高光
                       </span>
                       <strong>{videoName}</strong>
-                      <small>
-                        {highlight.anchor
-                          ?.openingSummary ??
-                          (highlight.status ===
-                          "completed"
-                            ? "正在理解开头"
-                            : highlight.status)}
+                      <small
+                        className={
+                          preparation.failed
+                            ? "highlight-preparation-failed"
+                            : undefined
+                        }
+                      >
+                        {preparation.summary}
                       </small>
                     </div>
                   </div>
@@ -680,9 +792,7 @@ export function PipelineScriptWorkspace({
                       })}
                     {!scripts.length && (
                       <div className="empty-linked-scripts">
-                        {highlight.anchor
-                          ? "尚未生成关联脚本"
-                          : "高光开头理解完成后可生成脚本"}
+                        {preparation.empty}
                       </div>
                     )}
                   </div>

@@ -3,6 +3,8 @@ import {
   creativeWorkTypeIds,
 } from "@/lib/creative-work-types";
 import { listProjects } from "@/lib/project-store";
+import { requireUser } from "@/lib/auth";
+import { accessForUser } from "@/lib/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,8 @@ export default async function CreativeTypePage({
   ) {
     notFound();
   }
-  const projects = await listProjects();
+  const user = await requireUser();
+  const projects = await listProjects(accessForUser(user));
   if (!projects.length) redirect("/");
   redirect(
     `/projects/${projects[0].id}?workType=${workTypeId}`,

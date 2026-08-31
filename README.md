@@ -16,6 +16,14 @@ npm run dev
 
 默认 `PROVIDER_MODE=mock`，无需外部 API 或数据库即可浏览界面和调用示例任务。访问 `http://localhost:3000`。
 
+首次访问会进入 `/setup` 创建首个管理员。生产环境必须配置至少 32 位随机值：
+
+```bash
+FRAMEFLOW_AUTH_SECRET=
+```
+
+普通用户由管理员在“系统设置”中创建，只能访问自己创建的项目；管理员可访问全部项目和系统设置。
+
 `npm run dev` 会同时启动 Next.js 和 Pipeline Worker，异步任务会由 Worker 持续领取并轮询上游状态。生产环境使用 `npm start` 时也会同时启动两者。
 
 如部署平台需要拆分 Web 与 Worker 进程，可分别运行：

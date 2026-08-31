@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { pipelineInputSchema } from "@/lib/domain";
 import { getCreativeProvider } from "@/lib/providers";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 export async function POST(
   request: Request,
@@ -9,6 +13,14 @@ export async function POST(
   const requestId = crypto.randomUUID();
   try {
     const { projectId } = await context.params;
+    const auth = await authenticatedApiUser();
+    if (!auth.user || auth.response) return auth.response;
+    if (!(await authorizedProject(projectId, auth.user))) {
+      return NextResponse.json(
+        { error: "项目不存在", requestId },
+        { status: 404 },
+      );
+    }
     const input = pipelineInputSchema.parse(await request.json());
     const provider = getCreativeProvider();
 

@@ -88,6 +88,7 @@ describe("PipelineScriptWorkspace", () => {
       onConfirmSelectedScripts: vi.fn(),
       onConfirmScript: vi.fn(),
       onGoToPrerolls: vi.fn(),
+      onGoToStoryArcs: vi.fn(),
       onSaveScript: vi.fn(async () => true),
     };
     const { rerender } = render(
@@ -123,5 +124,70 @@ describe("PipelineScriptWorkspace", () => {
         name: "收起脚本详情",
       }),
     ).toHaveLength(2);
+  });
+
+  it("shows the failed story arc state instead of an endless opening analysis", async () => {
+    const user = userEvent.setup();
+    const onGoToStoryArcs = vi.fn();
+    const failedPipeline = pipeline([]);
+    failedPipeline.highlights[0] = {
+      ...failedPipeline.highlights[0],
+      id: "highlight-upload-asset-1",
+      arcId: "",
+      anchor: undefined,
+    };
+    const failedArcJob = {
+      id: "job-arc-failed",
+      kind: "mine_arcs",
+      status: "failed",
+      progress: 1,
+      error: "Ark 请求超时（300 秒）",
+      input: {
+        sourceHighlightAssetId: "asset-1",
+      },
+      updatedAt: "2026-08-31T01:00:00.000Z",
+    };
+
+    render(
+      <PipelineScriptWorkspace
+        pipeline={failedPipeline}
+        currentJobs={[failedArcJob]}
+        effectiveCurrentJobs={[failedArcJob]}
+        productionConfig={defaultProductionConfig}
+        activeHighlightId="highlight-upload-asset-1"
+        selectedScriptIds={[]}
+        confirmingScripts={false}
+        regeneratingHighlightId=""
+        savingScript={false}
+        onActiveHighlightChange={vi.fn()}
+        onSelectedScriptIdsChange={vi.fn()}
+        onRequestScriptDeletion={vi.fn()}
+        onGenerateOrRetryScripts={vi.fn()}
+        onConfirmSelectedScripts={vi.fn()}
+        onConfirmScript={vi.fn()}
+        onGoToPrerolls={vi.fn()}
+        onGoToStoryArcs={onGoToStoryArcs}
+        onSaveScript={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "爽点故事线生成失败：Ark 请求超时（300 秒）",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "爽点故事线生成失败，暂时无法生成脚本",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("正在理解开头")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "前往爽点故事线重试",
+      }),
+    );
+    expect(onGoToStoryArcs).toHaveBeenCalledOnce();
   });
 });

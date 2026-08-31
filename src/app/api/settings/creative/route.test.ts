@@ -6,6 +6,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/creative-settings-store", () => mocks);
+vi.mock("@/lib/authorization", () => ({
+  adminApiUser: async () => ({
+    user: { id: "admin-1", role: "admin" },
+    response: null,
+  }),
+}));
 
 import { GET, PUT } from "./route";
 

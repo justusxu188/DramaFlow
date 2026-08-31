@@ -12,6 +12,7 @@ import {
 
 export type ProjectSummary = {
   id: string;
+  ownerId: string;
   name: string;
   genre: string;
   episodeCount: number;
@@ -165,6 +166,7 @@ export type ProjectAssetKind =
 type LocalData = {
   projects: Array<{
     id: string;
+    ownerId?: string;
     name: string;
     genre: string;
     episodeCount: number;
@@ -177,23 +179,39 @@ type LocalData = {
   >;
 };
 
-const dataPath = path.join(process.cwd(), "data", "project-store.json");
+const defaultDataPath = path.join(
+  process.cwd(),
+  "data",
+  "project-store.json",
+);
 let databaseAvailable: boolean | undefined;
 let localMutationQueue = Promise.resolve();
 
+function dataPath() {
+  return process.env.FRAMEFLOW_PROJECT_STORE_PATH ?? defaultDataPath;
+}
+
 async function readLocal(): Promise<LocalData> {
   try {
-    return JSON.parse(await readFile(dataPath, "utf8")) as LocalData;
+    const override = process.env.FRAMEFLOW_PROJECT_STORE_PATH;
+    const content = override
+      ? await readFile(
+          /* turbopackIgnore: true */ override,
+          "utf8",
+        )
+      : await readFile(defaultDataPath, "utf8");
+    return JSON.parse(content) as LocalData;
   } catch {
     return { projects: [], assets: [] };
   }
 }
 
 async function writeLocal(data: LocalData) {
-  await mkdir(path.dirname(dataPath), { recursive: true });
-  const temporaryPath = `${dataPath}.tmp`;
+  const target = dataPath();
+  await mkdir(path.dirname(target), { recursive: true });
+  const temporaryPath = `${target}.${crypto.randomUUID()}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  await rename(temporaryPath, dataPath);
+  await rename(temporaryPath, target);
 }
 
 async function mutateLocal<T>(
@@ -222,6 +240,7 @@ function summarizeLocal(project: LocalData["projects"][number], data: LocalData)
   const episodeCount = sources.filter((asset) => asset.uploadMode === "episodes").length;
   return {
     ...project,
+    ownerId: project.ownerId ?? "",
     episodeCount: episodeCount || project.episodeCount,
     status: sources.length ? "ready" : "awaiting_upload",
     progress: sources.length ? 14 : 0,
@@ -244,9 +263,20 @@ async function useDatabase<T>(operation: () => Promise<T>): Promise<T | undefine
   }
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+export type ProjectAccess = {
+  id: string;
+  role: "admin" | "user";
+};
+
+export async function listProjects(
+  access?: ProjectAccess,
+): Promise<ProjectSummary[]> {
   const databaseProjects = await useDatabase(() =>
     db.project.findMany({
+      where:
+        access?.role === "user"
+          ? { ownerId: access.id }
+          : undefined,
       include: {
         assets: { where: { kind: "source", uploadStatus: "completed" } },
         jobs: true,
@@ -281,6 +311,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       });
       return {
         id: project.id,
+        ownerId: project.ownerId,
         name: project.name,
         genre: project.genre,
         episodeCount: project.assets.filter((asset) => asset.uploadMode === "episodes").length || project.episodeCount,
@@ -300,7 +331,13 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     });
   }
   const local = await readLocal();
-  return Promise.all(local.projects.map(async (project) => {
+  const visibleProjects = local.projects.filter(
+    (project) =>
+      !access ||
+      access.role === "admin" ||
+      project.ownerId === access.id,
+  );
+  return Promise.all(visibleProjects.map(async (project) => {
     const summary = summarizeLocal(project, local);
     const [pipeline, jobs] = await Promise.all([
       getPipelineProject(project.id),
@@ -349,8 +386,11 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   }));
 }
 
-export async function getProject(projectId: string) {
-  const projects = await listProjects();
+export async function getProject(
+  projectId: string,
+  access?: ProjectAccess,
+) {
+  const projects = await listProjects(access);
   const project = projects.find((item) => item.id === projectId);
   if (!project) return null;
   const [
@@ -380,14 +420,14 @@ export async function createProject(input: {
   name: string;
   genre: string;
   episodeCount: number;
-}): Promise<ProjectSummary> {
+}, ownerId: string): Promise<ProjectSummary> {
   const databaseProject = await useDatabase(async () => {
-    const owner = await db.user.upsert({
-      where: { username: "local-user" },
+    await db.user.upsert({
+      where: { username: ownerId },
       update: {},
-      create: { username: "local-user", name: "本地创作者" },
+      create: { id: ownerId, username: ownerId, name: ownerId },
     });
-    return db.project.create({ data: { ...input, ownerId: owner.id } });
+    return db.project.create({ data: { ...input, ownerId } });
   });
   if (databaseProject) {
     return {
@@ -404,6 +444,7 @@ export async function createProject(input: {
     const now = new Date().toISOString();
     const project = {
       id: `project-${crypto.randomUUID()}`,
+      ownerId,
       ...input,
       status: "awaiting_upload",
       createdAt: now,
@@ -411,6 +452,18 @@ export async function createProject(input: {
     };
     local.projects.unshift(project);
     return summarizeLocal(project, local);
+  });
+}
+
+export async function assignUnownedProjects(ownerId: string) {
+  return mutateLocal((local) => {
+    let updated = 0;
+    for (const project of local.projects) {
+      if (project.ownerId) continue;
+      project.ownerId = ownerId;
+      updated += 1;
+    }
+    return updated;
   });
 }
 

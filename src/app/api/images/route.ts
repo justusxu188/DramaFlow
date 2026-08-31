@@ -3,6 +3,7 @@ import { z } from "zod";
 import { imageSizes } from "@/lib/domain";
 import { getCreativeProvider } from "@/lib/providers";
 import { getCreativeSettings } from "@/lib/creative-settings-store";
+import { authenticatedApiUser } from "@/lib/authorization";
 
 const inputSchema = z.object({
   prompt: z.string().trim().min(4).max(1200),
@@ -12,6 +13,8 @@ const inputSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const auth = await authenticatedApiUser();
+  if (auth.response) return auth.response;
   const requestId = crypto.randomUUID();
   try {
     const input = inputSchema.parse(await request.json());

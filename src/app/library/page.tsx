@@ -17,13 +17,19 @@ import { getCreativeSettings } from "@/lib/creative-settings-store";
 import { isUsableCharacterImageAsset } from "@/lib/character-image-assets";
 import { groupImageAssetsByIdentity } from "@/lib/image-asset-groups";
 import { getProject, listProjects } from "@/lib/project-store";
+import { requireUser } from "@/lib/auth";
+import { accessForUser } from "@/lib/authorization";
 
 export const dynamic = "force-dynamic";
 
 export default async function LibraryPage() {
-  const projects = await listProjects();
+  const user = await requireUser();
+  const access = accessForUser(user);
+  const projects = await listProjects(access);
   const [details, creativeSettings] = await Promise.all([
-    Promise.all(projects.map((project) => getProject(project.id))),
+    Promise.all(
+      projects.map((project) => getProject(project.id, access)),
+    ),
     getCreativeSettings(),
   ]);
   const totalSources = details.reduce(

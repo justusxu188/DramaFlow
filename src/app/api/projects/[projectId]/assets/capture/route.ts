@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCreativeProvider } from "@/lib/providers";
-import { createImageAsset, getProject } from "@/lib/project-store";
+import { createImageAsset } from "@/lib/project-store";
 import { transferRemoteFileToTos } from "@/lib/tos";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 const inputSchema = z.discriminatedUnion("action", [
   z.object({
@@ -82,8 +86,10 @@ export async function POST(
   const requestId = crypto.randomUUID();
   const { projectId } = await context.params;
   try {
+    const auth = await authenticatedApiUser();
+    if (!auth.user || auth.response) return auth.response;
     const input = inputSchema.parse(await request.json());
-    const project = await getProject(projectId);
+    const project = await authorizedProject(projectId, auth.user);
     if (!project) {
       return NextResponse.json(
         { error: "项目不存在", requestId },

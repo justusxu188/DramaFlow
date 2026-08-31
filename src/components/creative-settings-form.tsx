@@ -41,6 +41,9 @@ export function CreativeSettingsForm({
   const [promptStage, setPromptStage] = useState<
     "creative" | "script" | "video"
   >("creative");
+  const [videoPromptMode, setVideoPromptMode] = useState<
+    "without_subtitles" | "with_subtitles"
+  >("without_subtitles");
 
   function update<K extends keyof ProductionConfig>(
     key: K,
@@ -483,50 +486,91 @@ export function CreativeSettingsForm({
         )}
         {promptStage === "video" && (
           <div className="prompt-stage-versions">
-            <label className="creative-setting-wide prompt-stage-content">
-              <span>有字幕生视频提示词 System Prompt</span>
-              <small>
-                生成字幕选择“是”时使用。
-              </small>
-              <textarea
-                value={settings.videoPromptSystemPrompt}
-                onChange={(event) => setSettings((current) => ({
-                  ...current,
-                  videoPromptSystemPrompt:
-                    event.target.value.slice(0, 12000),
-                }))}
-                placeholder="控制字幕、角色、场景、运镜、声音和连续性"
-                aria-label="有字幕生视频提示词 System Prompt"
-              />
-              <small>
-                {settings.videoPromptSystemPrompt.length} / 12000
-              </small>
-            </label>
-            <label className="creative-setting-wide prompt-stage-content">
-              <span>无字幕生视频提示词 System Prompt</span>
-              <small>
-                生成字幕选择“否”时使用，禁止画面出现字幕和其他可见文字。
-              </small>
-              <textarea
-                value={
-                  settings.videoPromptWithoutSubtitlesSystemPrompt
+            <div
+              className="video-prompt-mode-tabs"
+              role="tablist"
+              aria-label="生视频提示词字幕模式"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={
+                  videoPromptMode === "without_subtitles"
                 }
-                onChange={(event) => setSettings((current) => ({
-                  ...current,
-                  videoPromptWithoutSubtitlesSystemPrompt:
-                    event.target.value.slice(0, 16000),
-                }))}
-                placeholder="控制无字幕视频的角色、场景、运镜、声音和文字限制"
-                aria-label="无字幕生视频提示词 System Prompt"
-              />
-              <small>
-                {
-                  settings.videoPromptWithoutSubtitlesSystemPrompt
-                    .length
-                }{" "}
-                / 16000
-              </small>
-            </label>
+                className={
+                  videoPromptMode === "without_subtitles"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setVideoPromptMode("without_subtitles")
+                }
+              >
+                无字幕生视频提示词 System Prompt
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={
+                  videoPromptMode === "with_subtitles"
+                }
+                className={
+                  videoPromptMode === "with_subtitles"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setVideoPromptMode("with_subtitles")
+                }
+              >
+                有字幕生视频提示词 System Prompt
+              </button>
+            </div>
+            {videoPromptMode === "without_subtitles" ? (
+              <label className="creative-setting-wide prompt-stage-content">
+                <small>
+                  生成字幕选择“否”时使用，禁止画面出现字幕和其他可见文字。
+                </small>
+                <textarea
+                  value={
+                    settings.videoPromptWithoutSubtitlesSystemPrompt
+                  }
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    videoPromptWithoutSubtitlesSystemPrompt:
+                      event.target.value.slice(0, 16000),
+                  }))}
+                  placeholder="控制无字幕视频的角色、场景、运镜、声音和文字限制"
+                  aria-label="无字幕生视频提示词 System Prompt"
+                />
+                <small>
+                  {
+                    settings.videoPromptWithoutSubtitlesSystemPrompt
+                      .length
+                  }{" "}
+                  / 16000
+                </small>
+              </label>
+            ) : (
+              <label className="creative-setting-wide prompt-stage-content">
+                <small>
+                  生成字幕选择“是”时使用。
+                </small>
+                <textarea
+                  value={settings.videoPromptSystemPrompt}
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    videoPromptSystemPrompt:
+                      event.target.value.slice(0, 12000),
+                  }))}
+                  placeholder="控制字幕、角色、场景、运镜、声音和连续性"
+                  aria-label="有字幕生视频提示词 System Prompt"
+                />
+                <small>
+                  {settings.videoPromptSystemPrompt.length} / 12000
+                </small>
+              </label>
+            )}
           </div>
         )}
       </div>

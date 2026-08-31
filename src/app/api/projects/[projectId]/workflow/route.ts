@@ -20,14 +20,25 @@ import {
 } from "./simple-commands";
 import { handleStartProduction } from "./start-production-command";
 import { activatePipelineRunById } from "@/lib/pipeline-store";
-import { getProject } from "@/lib/project-store";
 import { productionEntries } from "@/lib/production-config";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 export async function GET(
   request: Request,
   context: { params: Promise<{ projectId: string }> },
 ) {
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
   const { projectId } = await context.params;
+  if (!(await authorizedProject(projectId, auth.user))) {
+    return NextResponse.json(
+      { error: "项目不存在" },
+      { status: 404 },
+    );
+  }
   const productionEntry = z.enum(productionEntries).safeParse(
     new URL(request.url).searchParams.get("productionEntry"),
   );
@@ -45,7 +56,9 @@ export async function POST(
   const requestId = crypto.randomUUID();
   try {
     const { projectId } = await context.params;
-    const project = await getProject(projectId);
+    const auth = await authenticatedApiUser();
+    if (!auth.user || auth.response) return auth.response;
+    const project = await authorizedProject(projectId, auth.user);
     if (!project) {
       return NextResponse.json(
         { error: "项目不存在", requestId },

@@ -2,6 +2,9 @@ import { Check, Database, HardDrive, ServerCog, ShieldCheck, UserRoundCheck } fr
 import { env, hasArkAssetsConfig } from "@/lib/env";
 import { getCreativeSettings } from "@/lib/creative-settings-store";
 import { CreativeSettingsForm } from "@/components/creative-settings-form";
+import { UserManagement } from "@/components/user-management";
+import { requireAdmin } from "@/lib/auth";
+import { listUsers } from "@/lib/user-store";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +42,11 @@ const providers = [
 ];
 
 export default async function SettingsPage() {
-  const creativeSettings = await getCreativeSettings();
+  const user = await requireAdmin();
+  const [creativeSettings, users] = await Promise.all([
+    getCreativeSettings(),
+    listUsers(),
+  ]);
   return (
     <div className="page settings-page">
       <header className="page-header">
@@ -72,6 +79,10 @@ export default async function SettingsPage() {
       </section>
       <CreativeSettingsForm
         initialSettings={creativeSettings}
+      />
+      <UserManagement
+        initialUsers={users}
+        currentUserId={user.id}
       />
     </div>
   );

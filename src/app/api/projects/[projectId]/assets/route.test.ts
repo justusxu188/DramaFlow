@@ -39,6 +39,14 @@ vi.mock("@/lib/project-store", () => ({
     mocks.updateSourceAssetDuration,
 }));
 
+vi.mock("@/lib/authorization", () => ({
+  authenticatedApiUser: async () => ({
+    user: { id: "user-1", role: "user" },
+    response: null,
+  }),
+  authorizedProject: async () => ({ id: "project-1" }),
+}));
+
 vi.mock("@/lib/ark-assets", () => ({
   getArkAssetsClient: () => ({
     deleteAsset: mocks.deleteArkAsset,

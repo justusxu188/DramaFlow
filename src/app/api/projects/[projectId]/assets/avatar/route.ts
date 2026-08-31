@@ -7,6 +7,10 @@ import {
   listImageAssets,
   updateImageAssetMetadata,
 } from "@/lib/project-store";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 const inputSchema = z.object({
   action: z.enum([
@@ -26,6 +30,14 @@ export async function POST(
   const requestId = crypto.randomUUID();
   try {
     const { projectId } = await context.params;
+    const auth = await authenticatedApiUser();
+    if (!auth.user || auth.response) return auth.response;
+    if (!(await authorizedProject(projectId, auth.user))) {
+      return NextResponse.json(
+        { error: "项目不存在", requestId },
+        { status: 404 },
+      );
+    }
     const input = inputSchema.parse(
       await request.json(),
     );

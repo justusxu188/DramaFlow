@@ -15,6 +15,10 @@ const navigation = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
+  useRouter: () => ({
+    replace: vi.fn(),
+    refresh: vi.fn(),
+  }),
   useSearchParams: () => ({
     get: (key: string) =>
       key === "workType"
@@ -25,6 +29,16 @@ vi.mock("next/navigation", () => ({
 
 import { Sidebar } from "./sidebar";
 
+const admin = {
+  id: "user-admin",
+  username: "admin",
+  name: "管理员",
+  role: "admin" as const,
+  active: true,
+  createdAt: "2026-08-31T00:00:00.000Z",
+  updatedAt: "2026-08-31T00:00:00.000Z",
+};
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -34,7 +48,7 @@ afterEach(() => {
 
 describe("sidebar navigation", () => {
   it("uses distinct routes for all four work areas", () => {
-    render(<Sidebar />);
+    render(<Sidebar user={admin} />);
     expect(screen.getByRole("link", { name: "项目中心" }).getAttribute("href")).toBe("/");
     expect(screen.getByText("创作工作台")).toBeTruthy();
     expect(
@@ -64,7 +78,7 @@ describe("sidebar navigation", () => {
     navigation.pathname = "/projects/project-1";
     navigation.workType = "batch-highlights";
 
-    render(<Sidebar />);
+    render(<Sidebar user={admin} />);
 
     expect(
       screen
@@ -96,7 +110,7 @@ describe("sidebar navigation", () => {
       "pushState",
     );
 
-    render(<Sidebar />);
+    render(<Sidebar user={admin} />);
     fireEvent.click(
       screen.getByText("批量高光剪辑"),
     );
@@ -106,5 +120,16 @@ describe("sidebar navigation", () => {
       "",
       "/projects/project-1?workType=batch-highlights",
     );
+  });
+
+  it("hides system settings from ordinary users", () => {
+    render(
+      <Sidebar
+        user={{ ...admin, id: "user-creator", role: "user" }}
+      />,
+    );
+
+    expect(screen.queryByText("系统设置")).toBeNull();
+    expect(screen.getByText("普通用户")).toBeTruthy();
   });
 });

@@ -9,6 +9,7 @@ import {
   productionConfigObjectSchema,
   productionConfigSchema,
 } from "@/lib/production-config";
+import { adminApiUser } from "@/lib/authorization";
 
 const settingsSchema = productionConfigObjectSchema.partial().extend({
   prerollCreativeSystemPrompt:
@@ -20,10 +21,14 @@ const settingsSchema = productionConfigObjectSchema.partial().extend({
 });
 
 export async function GET() {
+  const auth = await adminApiUser();
+  if (auth.response) return auth.response;
   return NextResponse.json({ data: await getCreativeSettings() });
 }
 
 export async function PUT(request: Request) {
+  const auth = await adminApiUser();
+  if (auth.response) return auth.response;
   const requestId = crypto.randomUUID();
   try {
     const input = settingsSchema.parse(await request.json());

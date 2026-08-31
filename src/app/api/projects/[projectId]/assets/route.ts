@@ -14,6 +14,10 @@ import {
 } from "@/lib/project-store";
 import { listPipelineRuns } from "@/lib/pipeline-store";
 import { getArkAssetsClient } from "@/lib/ark-assets";
+import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
 
 const sharedUploadedAssetSchema = z.object({
   name: z.string().trim().min(1).max(180),
@@ -77,7 +81,12 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ projectId: string }> },
 ) {
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
   const { projectId } = await context.params;
+  if (!(await authorizedProject(projectId, auth.user))) {
+    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+  }
   return NextResponse.json({ data: await listSourceAssets(projectId) });
 }
 
@@ -87,6 +96,14 @@ export async function POST(
 ) {
   const requestId = crypto.randomUUID();
   const { projectId } = await context.params;
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
+  if (!(await authorizedProject(projectId, auth.user))) {
+    return NextResponse.json(
+      { error: "项目不存在", requestId },
+      { status: 404 },
+    );
+  }
   try {
     const raw = await request.json();
     let data;
@@ -267,6 +284,14 @@ export async function PATCH(
 ) {
   const requestId = crypto.randomUUID();
   const { projectId } = await context.params;
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
+  if (!(await authorizedProject(projectId, auth.user))) {
+    return NextResponse.json(
+      { error: "项目不存在", requestId },
+      { status: 404 },
+    );
+  }
   try {
     const raw = await request.json();
     if (raw?.action === "rename_image") {
@@ -315,6 +340,14 @@ export async function DELETE(
 ) {
   const requestId = crypto.randomUUID();
   const { projectId } = await context.params;
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
+  if (!(await authorizedProject(projectId, auth.user))) {
+    return NextResponse.json(
+      { error: "项目不存在", requestId },
+      { status: 404 },
+    );
+  }
   try {
     const input = assetDeleteSchema.parse(
       await request.json(),

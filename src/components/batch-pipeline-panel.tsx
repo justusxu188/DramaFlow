@@ -241,6 +241,7 @@ export function BatchPipelinePanel({
   const [savingPlan, setSavingPlan] = useState(false);
   const [planDirty, setPlanDirty] = useState(false);
   const [planMessage, setPlanMessage] = useState("");
+  const [retryingArcJobs, setRetryingArcJobs] = useState(false);
   const visibleWorkspaceStages = useMemo(
     () =>
       workspaceStages.filter((stage) =>
@@ -683,6 +684,10 @@ export function BatchPipelinePanel({
   const activeJobs = effectiveCurrentJobs.filter((job) =>
     ["queued", "running"].includes(job.status),
   );
+  const failedArcJobs = pipelineStageJobs(
+    effectiveCurrentJobs,
+    "arcs",
+  ).filter((job) => job.status === "failed");
   useWorkspacePolling({
     refresh,
     hasRunningJobs: activeJobs.length > 0,
@@ -1005,13 +1010,51 @@ export function BatchPipelinePanel({
     await start("run_full");
   }
 
-  async function retry(jobId: string) {
-    await fetch(`/api/projects/${projectId}/workflow`, {
+  async function retryJob(jobId: string) {
+    const response = await fetch(`/api/projects/${projectId}/workflow`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "retry", jobId }),
     });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error ?? "重试任务提交失败");
+    }
+  }
+
+  async function retry(jobId: string) {
+    try {
+      setError("");
+      await retryJob(jobId);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "重试任务提交失败",
+      );
+    }
     await refresh();
+  }
+
+  async function retryFailedArcJobs() {
+    if (!failedArcJobs.length || retryingArcJobs) return;
+    setRetryingArcJobs(true);
+    setError("");
+    try {
+      await Promise.all(
+        failedArcJobs.map((job) => retryJob(job.id)),
+      );
+      await refresh();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "爽点故事线重试提交失败",
+      );
+      await refresh();
+    } finally {
+      setRetryingArcJobs(false);
+    }
   }
 
   async function toggleFeaturedArtifact(
@@ -1815,7 +1858,12 @@ export function BatchPipelinePanel({
       )}
 
       {activeStage === "arcs" && (
-        <PipelineStoryArcStage arcs={pipeline?.arcs ?? []} />
+        <PipelineStoryArcStage
+          arcs={pipeline?.arcs ?? []}
+          failedCount={failedArcJobs.length}
+          retrying={retryingArcJobs}
+          onRetryFailed={() => void retryFailedArcJobs()}
+        />
       )}
 
       {activeStage === "highlights" && (
@@ -1863,6 +1911,7 @@ export function BatchPipelinePanel({
             void confirmScriptsByIds([scriptId])
           }
           onGoToPrerolls={openPrerollScript}
+          onGoToStoryArcs={() => setActiveStage("arcs")}
           onSaveScript={saveScript}
         />
       ) : null}

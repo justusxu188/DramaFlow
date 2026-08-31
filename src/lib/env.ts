@@ -3,6 +3,9 @@ import { z } from "zod";
 const serverEnvSchema = z.object({
   PROVIDER_MODE: z.enum(["mock", "real"]).default("mock"),
   PERSISTENCE_MODE: z.enum(["local", "mysql"]).default("local"),
+  FRAMEFLOW_AUTH_SECRET: z
+    .union([z.string().min(32), z.literal("")])
+    .optional(),
   DATABASE_URL: z.string().optional(),
   ARK_API_KEY: z.string().optional(),
   ARK_BASE_URL: z

@@ -363,6 +363,57 @@ describe("creative provider contract", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses medium reasoning for both story arc requests", async () => {
+    const arc = prerollInput("固定 System Prompt").arc;
+    const response = () =>
+      new Response(
+        JSON.stringify({
+          choices: [{
+            message: {
+              content: JSON.stringify({ arcs: [arc] }),
+            },
+          }],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new ArkCreativeProvider().mineStoryArcs({
+      analysis: {
+        duration: 10,
+        sourceVideoInfo: [],
+        clips: [{
+          index: 1,
+          sourceVideoIndex: 0,
+          title: "英语启蒙方法",
+          summary: "讲解英语启蒙的正确方法。",
+          dialogue: "先听说，再认字。",
+          score: 4,
+          start: 0,
+          end: 10,
+        }],
+        highlights: [],
+      },
+      genre: "教育广告",
+      count: 1,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    expect(
+      requests.map((request) => request.reasoning_effort),
+    ).toEqual(["medium", "medium"]);
+  });
+
   it("keeps the configured prompt as the only system message", () => {
     const systemPrompt = "截图中保存的完整 System Prompt";
     const payload = {

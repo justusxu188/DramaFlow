@@ -9,6 +9,10 @@ import {
   getProject,
 } from "@/lib/project-store";
 import {
+  authenticatedApiUser,
+  authorizedProject,
+} from "@/lib/authorization";
+import {
   transferRemoteFileToTos,
   type TosStorageStage,
 } from "@/lib/tos";
@@ -406,7 +410,9 @@ export async function GET(
   context: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await context.params;
-  const project = await getProject(projectId);
+  const auth = await authenticatedApiUser();
+  if (!auth.user || auth.response) return auth.response;
+  const project = await authorizedProject(projectId, auth.user);
   if (!project) {
     return NextResponse.json(
       { error: "项目不存在" },
@@ -430,8 +436,10 @@ export async function POST(
   const requestId = crypto.randomUUID();
   const { projectId } = await context.params;
   try {
+    const auth = await authenticatedApiUser();
+    if (!auth.user || auth.response) return auth.response;
     const input = inputSchema.parse(await request.json());
-    const project = await getProject(projectId);
+    const project = await authorizedProject(projectId, auth.user);
     if (!project) {
       return NextResponse.json(
         { error: "项目不存在", requestId },

@@ -57,6 +57,15 @@ vi.mock("@/lib/project-store", () => ({
   listImageAssets: mocks.listImageAssets,
 }));
 
+vi.mock("@/lib/authorization", () => ({
+  authenticatedApiUser: async () => ({
+    user: { id: "user-1", role: "user" },
+    response: null,
+  }),
+  authorizedProject: (projectId: string) =>
+    mocks.getProject.getMockImplementation()?.(projectId),
+}));
+
 vi.mock("@/lib/pipeline-store", () => ({
   enqueuePipelineJob: mocks.enqueuePipelineJob,
   getPipelineJob: mocks.getPipelineJob,

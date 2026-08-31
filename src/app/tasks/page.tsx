@@ -17,6 +17,8 @@ import {
   pipelineTaskEvidence,
 } from "@/lib/pipeline-task-verification";
 import { listProjects } from "@/lib/project-store";
+import { requireUser } from "@/lib/auth";
+import { accessForUser } from "@/lib/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -86,11 +88,21 @@ function formatTaskTime(value?: string) {
 }
 
 export default async function TasksPage() {
-  const [projects, jobs, runs] = await Promise.all([
-    listProjects(),
+  const user = await requireUser();
+  const projects = await listProjects(accessForUser(user));
+  const visibleProjectIds = new Set(
+    projects.map((project) => project.id),
+  );
+  const [allJobs, allRuns] = await Promise.all([
     listPipelineJobs(),
     listPipelineRuns(),
   ]);
+  const jobs = allJobs.filter((job) =>
+    visibleProjectIds.has(job.projectId),
+  );
+  const runs = allRuns.filter((run) =>
+    visibleProjectIds.has(run.projectId),
+  );
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const runEntries = new Map(
     runs.map((run) => [run.id, run.productionConfig?.productionEntry]),
