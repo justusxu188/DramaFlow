@@ -3,6 +3,12 @@ import { z } from "zod";
 const serverEnvSchema = z.object({
   PROVIDER_MODE: z.enum(["mock", "real"]).default("mock"),
   PERSISTENCE_MODE: z.enum(["local", "mysql"]).default("local"),
+  PIPELINE_JOB_STALE_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(3_600_000)
+    .default(900_000),
   FRAMEFLOW_AUTH_SECRET: z
     .union([z.string().min(32), z.literal("")])
     .optional(),
@@ -43,6 +49,12 @@ const serverEnvSchema = z.object({
     .string()
     .url()
     .default("https://mediakit.cn-beijing.volces.com/api/v1"),
+  MEDIAKIT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(600_000)
+    .default(120_000),
   TOS_ENDPOINT: z.string().optional(),
   TOS_REGION: z.string().default("cn-beijing"),
   TOS_BUCKET: z.string().optional(),

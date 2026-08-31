@@ -14,6 +14,7 @@ import {
   getPipelineProject,
   getPipelineProjectRun,
   listPipelineJobs,
+  reclaimStalePipelineJobs,
   requeuePipelineJob,
   saveAnalysis,
   saveCompiledVideoPrompt,
@@ -66,6 +67,7 @@ import {
 } from "@/lib/subtitle-video-normalization";
 import { verifyBurnedSubtitles } from "@/lib/subtitle-video-verification";
 import { planVideoSegments } from "@/lib/video-shot-segmentation";
+import { env } from "@/lib/env";
 
 export { planVideoSegments } from "@/lib/video-shot-segmentation";
 
@@ -2208,7 +2210,18 @@ export async function runPipelineJobNow(jobId: string) {
 }
 
 export async function runPipelineTick() {
+  const reclaimed = await reclaimStalePipelineJobs(
+    env.PIPELINE_JOB_STALE_MS,
+  );
+  for (const stale of reclaimed) {
+    console.warn(
+      `[pipeline] reclaimed stale job ${stale.id} (${stale.kind}): ${stale.action} after ${stale.attempts} attempt(s)`,
+    );
+  }
   const job = await claimNextPipelineJob();
-  if (!job) return { processed: false };
-  return executeClaimedJob(job);
+  if (!job) {
+    return { processed: false, reclaimed };
+  }
+  const result = await executeClaimedJob(job);
+  return { ...result, reclaimed };
 }

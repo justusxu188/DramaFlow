@@ -2007,6 +2007,62 @@ export async function requeuePipelineJob(jobId: string, patch: Partial<PipelineJ
   });
 }
 
+export async function reclaimStalePipelineJobs(staleMs: number) {
+  const snapshot = await readData();
+  const now = Date.now();
+  const staleIds = snapshot.jobs
+    .filter((job) => job.status === "running")
+    .filter((job) => {
+      const updatedAtMs = Date.parse(job.updatedAt);
+      return (
+        !Number.isNaN(updatedAtMs) &&
+        now - updatedAtMs >= staleMs
+      );
+    })
+    .map((job) => job.id);
+  if (staleIds.length === 0) return [];
+  return mutate((data) => {
+    const reclaimed: Array<{
+      id: string;
+      kind: PipelineJobKind;
+      attempts: number;
+      action: "requeued" | "failed";
+    }> = [];
+    const timestamp = new Date().toISOString();
+    for (const job of data.jobs) {
+      if (job.status !== "running") continue;
+      if (!staleIds.includes(job.id)) continue;
+      const attempts = job.attempts + 1;
+      if (attempts >= 3) {
+        job.status = "failed";
+        job.attempts = attempts;
+        job.error = `任务连续 ${attempts} 次执行中断（服务重启或执行超时），已标记失败`;
+        job.completedAt = timestamp;
+        job.updatedAt = timestamp;
+        reclaimed.push({
+          id: job.id,
+          kind: job.kind,
+          attempts,
+          action: "failed",
+        });
+      } else {
+        job.status = "queued";
+        job.attempts = attempts;
+        job.error = `检测到中断的运行中任务（服务重启或执行超时），已自动重新排队（第 ${attempts} 次重试）`;
+        job.completedAt = undefined;
+        job.updatedAt = timestamp;
+        reclaimed.push({
+          id: job.id,
+          kind: job.kind,
+          attempts,
+          action: "requeued",
+        });
+      }
+    }
+    return reclaimed;
+  });
+}
+
 export async function saveAnalysis(
   projectId: string,
   analysis: StorylineResult,

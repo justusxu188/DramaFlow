@@ -30,15 +30,31 @@ export class MediaKitProvider
 {
   private async request<T>(path: string, init: RequestInit): Promise<T> {
     if (!env.MEDIAKIT_API_KEY) throw new Error("MEDIAKIT_API_KEY 未配置");
-    const response = await fetch(`${env.MEDIAKIT_BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${env.MEDIAKIT_API_KEY}`,
-        "Content-Type": "application/json",
-        ...init.headers,
-      },
-      cache: "no-store",
-    });
+    const controller = new AbortController();
+    const timeoutMs = env.MEDIAKIT_TIMEOUT_MS ?? 120000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(`${env.MEDIAKIT_BASE_URL}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${env.MEDIAKIT_API_KEY}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `MediaKit 请求超时（${Math.round(timeoutMs / 1000)} 秒）`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!response.ok) {
       const requestId = response.headers.get("x-request-id") ?? "unknown";
       throw new Error(
