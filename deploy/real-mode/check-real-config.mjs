@@ -17,6 +17,7 @@
 // the file directly.
 
 const REQUIRED_EXACT = [
+  "FRAMEFLOW_AUTH_SECRET",
   "ARK_API_KEY",
   "ARK_TEXT_MODEL_SEED_2_1_PRO",
   "MEDIAKIT_API_KEY",
@@ -164,6 +165,12 @@ console.log();
 // ---- hard assertions ------------------------------------------------------
 const missing = [];
 for (const k of REQUIRED_EXACT) if (setLen(env[k]) === 0) missing.push(k);
+if (
+  setLen(env.FRAMEFLOW_AUTH_SECRET) > 0 &&
+  setLen(env.FRAMEFLOW_AUTH_SECRET) < 32
+) {
+  missing.push("FRAMEFLOW_AUTH_SECRET（至少 32 个字符）");
+}
 
 if (IMAGE_AT_LEAST_ONE.every((k) => setLen(env[k]) === 0))
   missing.push("至少一个 ARK_IMAGE_MODEL(_SEEDREAM_5_0_*)");
