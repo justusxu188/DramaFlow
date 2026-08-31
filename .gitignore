@@ -12,3 +12,7 @@ public/real-demo/*.mp4
 public/real-demo/result.json
 data/*.json
 tsconfig.tsbuildinfo
+
+# Local debug artifacts and agent/IDE state
+tmp/
+.trae/
