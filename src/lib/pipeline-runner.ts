@@ -11,6 +11,7 @@ import {
   confirmScripts,
   enqueuePipelineJob,
   findReusableHighlightAnalysis,
+  findReusableMediaUnderstanding,
   getPipelineProject,
   getPipelineProjectRun,
   listPipelineJobs,
@@ -19,6 +20,7 @@ import {
   saveAnalysis,
   saveCompiledVideoPrompt,
   saveHighlightAnalysis,
+  saveMediaUnderstanding,
   saveProductionPlan,
   saveScripts,
   saveSharedStoryContext,
@@ -352,6 +354,14 @@ async function processHighlightAnalysis(job: PipelineJob) {
   const highlightId = value<string>(job.input, "highlightId");
   const sourceName = value<string>(job.input, "sourceName");
   const videoUrl = value<string>(job.input, "videoUrl");
+  const assetRevisionKey = value<string>(
+    job.input,
+    "assetRevisionKey",
+  );
+  const analysisProfileHash = value<string>(
+    job.input,
+    "analysisProfileHash",
+  );
   if (
     !job.runId ||
     !sourceHighlightAssetId ||
@@ -362,6 +372,38 @@ async function processHighlightAnalysis(job: PipelineJob) {
     throw new Error("独立高光剧情理解缺少素材或批次信息");
   }
   if (!job.upstreamId) {
+    const reusableMedia =
+      assetRevisionKey && analysisProfileHash
+        ? await findReusableMediaUnderstanding(
+            job.projectId,
+            assetRevisionKey,
+            analysisProfileHash,
+          )
+        : null;
+    if (reusableMedia) {
+      await saveHighlightAnalysis(job.projectId, job.runId, {
+        sourceHighlightAssetId,
+        highlightId,
+        sourceName,
+        sourceVideoUrl: videoUrl,
+        analysis: reusableMedia.understanding.analysis,
+        reusedFromRunId: reusableMedia.runId,
+      });
+      await saveMediaUnderstanding(job.projectId, job.runId, {
+        ...reusableMedia.understanding,
+        assetId: sourceHighlightAssetId,
+        sourceKind: "highlight",
+        sourceName,
+        sourceVideoUrl: videoUrl,
+        reusedFromRunId: reusableMedia.runId,
+      });
+      await updatePipelineJob(job.id, {
+        status: "completed",
+        progress: 100,
+        result: reusableMedia.understanding.analysis,
+      });
+      return;
+    }
     const reusable = await findReusableHighlightAnalysis(
       job.projectId,
       sourceHighlightAssetId,
@@ -376,6 +418,18 @@ async function processHighlightAnalysis(job: PipelineJob) {
         analysis: reusable.analysis.analysis,
         reusedFromRunId: reusable.runId,
       });
+      if (assetRevisionKey && analysisProfileHash) {
+        await saveMediaUnderstanding(job.projectId, job.runId, {
+          assetId: sourceHighlightAssetId,
+          assetRevisionKey,
+          sourceKind: "highlight",
+          sourceName,
+          sourceVideoUrl: videoUrl,
+          analysisProfileHash,
+          analysis: reusable.analysis.analysis,
+          reusedFromRunId: reusable.runId,
+        });
+      }
       await updatePipelineJob(job.id, {
         status: "completed",
         progress: 100,
@@ -431,10 +485,103 @@ async function processHighlightAnalysis(job: PipelineJob) {
     sourceVideoUrl: videoUrl,
     analysis: storedAnalysis,
   });
+  if (assetRevisionKey && analysisProfileHash) {
+    await saveMediaUnderstanding(job.projectId, job.runId, {
+      assetId: sourceHighlightAssetId,
+      assetRevisionKey,
+      sourceKind: "highlight",
+      sourceName,
+      sourceVideoUrl: videoUrl,
+      analysisProfileHash,
+      analysis: storedAnalysis,
+    });
+  }
   await updatePipelineJob(job.id, {
     status: "completed",
     progress: 100,
     result: storedAnalysis,
+  });
+}
+
+async function processMediaAnalysis(job: PipelineJob) {
+  const assetId = value<string>(job.input, "assetId");
+  const assetRevisionKey = value<string>(
+    job.input,
+    "assetRevisionKey",
+  );
+  const analysisProfileHash = value<string>(
+    job.input,
+    "analysisProfileHash",
+  );
+  const sourceName = value<string>(job.input, "sourceName");
+  const videoUrl = value<string>(job.input, "videoUrl");
+  const sourceKind = value<"source" | "highlight">(
+    job.input,
+    "sourceKind",
+  );
+  if (
+    !job.runId ||
+    !assetId ||
+    !assetRevisionKey ||
+    !analysisProfileHash ||
+    !sourceName ||
+    !videoUrl ||
+    !["source", "highlight"].includes(sourceKind)
+  ) {
+    throw new Error("素材剧情理解缺少素材、版本或批次信息");
+  }
+  if (!job.upstreamId) {
+    const reusable = await findReusableMediaUnderstanding(
+      job.projectId,
+      assetRevisionKey,
+      analysisProfileHash,
+    );
+    if (reusable) {
+      await saveMediaUnderstanding(job.projectId, job.runId, {
+        ...reusable.understanding,
+        assetId,
+        sourceKind,
+        sourceName,
+        sourceVideoUrl: videoUrl,
+        reusedFromRunId: reusable.runId,
+      });
+      await updatePipelineJob(job.id, {
+        status: "completed",
+        progress: 100,
+        result: reusable.understanding.analysis,
+      });
+      return;
+    }
+    const task = await getCreativeProvider().analyzeStoryline({
+      videoUrls: [videoUrl],
+      clientToken: `${job.projectId}-${job.id}`.slice(0, 64),
+      enableSnapshot: false,
+    });
+    await requeuePipelineJob(job.id, {
+      upstreamId: task.id,
+      progress: 3,
+    });
+    return;
+  }
+  const task = await waitForUpstream(job);
+  if (!task) return;
+  const analysis = task.result as StorylineResult;
+  if (!analysis?.clips?.length) {
+    throw new Error("素材剧情理解未返回剧情片段");
+  }
+  await saveMediaUnderstanding(job.projectId, job.runId, {
+    assetId,
+    assetRevisionKey,
+    sourceKind,
+    sourceName,
+    sourceVideoUrl: videoUrl,
+    analysisProfileHash,
+    analysis,
+  });
+  await updatePipelineJob(job.id, {
+    status: "completed",
+    progress: 100,
+    result: analysis,
   });
 }
 
@@ -449,14 +596,25 @@ async function processHighlightContext(job: PipelineJob) {
         (id): id is string => typeof id === "string",
       )
     : [];
+  const backgroundAnalysisJobIds = Array.isArray(
+    job.input.backgroundAnalysisJobIds,
+  )
+    ? job.input.backgroundAnalysisJobIds.filter(
+        (id): id is string => typeof id === "string",
+      )
+    : [];
+  const requiredJobIds = [
+    ...analysisJobIds,
+    ...backgroundAnalysisJobIds,
+  ];
   const childJobs = (await listPipelineJobs(job.projectId))
-    .filter((candidate) => analysisJobIds.includes(candidate.id));
+    .filter((candidate) => requiredJobIds.includes(candidate.id));
   const failed = childJobs.filter(
     (candidate) => candidate.status === "failed",
   );
   if (failed.length > 0) {
     throw new Error(
-      `有 ${failed.length} 个高光剧情理解任务失败`,
+      `有 ${failed.length} 个素材剧情理解任务失败`,
     );
   }
   const completedCount = childJobs.filter(
@@ -464,14 +622,14 @@ async function processHighlightContext(job: PipelineJob) {
   ).length;
   if (
     analysisJobIds.length === 0 ||
-    completedCount < analysisJobIds.length
+    completedCount < requiredJobIds.length
   ) {
     await requeuePipelineJob(job.id, {
-      progress: analysisJobIds.length
+      progress: requiredJobIds.length
         ? Math.max(
             1,
             Math.round(
-              90 * completedCount / analysisJobIds.length,
+              90 * completedCount / requiredJobIds.length,
             ),
           )
         : 1,
@@ -499,14 +657,43 @@ async function processHighlightContext(job: PipelineJob) {
     (analysis): analysis is NonNullable<typeof analysis> =>
       Boolean(analysis),
   );
+  const backgroundAssetIds = Array.isArray(
+    job.input.backgroundAssetIds,
+  )
+    ? job.input.backgroundAssetIds.filter(
+        (id): id is string => typeof id === "string",
+      )
+    : [];
+  const backgroundAnalyses = backgroundAssetIds.map(
+    (assetId) =>
+      pipeline.mediaUnderstandings?.find(
+        (understanding) =>
+          understanding.assetId === assetId &&
+          understanding.sourceKind === "source",
+      ),
+  );
+  if (
+    backgroundAnalyses.some((analysis) => !analysis)
+  ) {
+    throw new Error("原剧背景理解结果不完整");
+  }
+  const completeBackgroundAnalyses =
+    backgroundAnalyses.filter(
+      (
+        analysis,
+      ): analysis is NonNullable<typeof analysis> =>
+        Boolean(analysis),
+    );
   const baseContext = buildSharedStoryContext(
     completeAnalyses,
+    completeBackgroundAnalyses,
   );
   let context = baseContext;
   try {
     const synthesized =
       await ark.synthesizeSharedStoryContext(
         completeAnalyses,
+        completeBackgroundAnalyses,
       );
     context = {
       ...baseContext,
@@ -545,7 +732,11 @@ async function processHighlightContext(job: PipelineJob) {
         sourceHighlightAssetId: uploaded.assetId,
         highlightId: uploaded.highlightId,
         uploadedHighlights: [uploaded],
-        storyContextSource: "selected_highlights",
+        storyContextSource:
+          value<string>(
+            job.input,
+            "storyContextSource",
+          ) || "selected_highlights",
         ...creativeSnapshot(job.input),
       },
       parentId: job.id,
@@ -2115,6 +2306,9 @@ async function processPostProduction(job: PipelineJob) {
 
 async function processJob(job: PipelineJob) {
   if (job.kind === "analysis") return processAnalysis(job);
+  if (job.kind === "media_analysis") {
+    return processMediaAnalysis(job);
+  }
   if (job.kind === "highlight_analysis") {
     return processHighlightAnalysis(job);
   }

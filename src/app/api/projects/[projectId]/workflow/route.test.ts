@@ -909,7 +909,7 @@ describe("project workflow source selection", () => {
     ]);
   });
 
-  it("analyzes project episodes before selected highlights when no shared context exists", async () => {
+  it("uses only selected highlights by default when the project has original videos", async () => {
     mocks.listHighlightAssets.mockResolvedValue([{
       id: "highlight-asset-1",
       name: "用户高光",
@@ -939,24 +939,36 @@ describe("project workflow source selection", () => {
     expect(mocks.startPipelineRun).toHaveBeenCalledWith(
       "project-1",
       expect.stringMatching(/^run-/),
-      ["asset-1", "asset-2"],
+      ["highlight-asset-1"],
     );
     expect(mocks.enqueuePipelineJob).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: "analysis",
+        kind: "highlight_analysis",
         input: expect.objectContaining({
-          storyContextSource: "project_sources",
-          sourceAssetIds: ["asset-1", "asset-2"],
-          videoUrls: [
-            "https://example.com/1.mp4",
-            "https://example.com/2.mp4",
-          ],
+          storyContextSource: "selected_highlights",
+          sourceAssetIds: ["highlight-asset-1"],
         }),
       }),
     );
+    expect(
+      mocks.enqueuePipelineJob.mock.calls.some(
+        ([input]) => input.kind === "media_analysis",
+      ),
+    ).toBe(false);
   });
 
-  it("reuses project story context before analyzing the selected highlight opening", async () => {
+  it("analyzes explicitly selected original videos as background context", async () => {
+    mocks.enqueuePipelineJob.mockImplementation(
+      async (input: {
+        kind: string;
+        input: { assetId?: string };
+      }) => ({
+        id:
+          input.kind === "media_analysis"
+            ? `job-media-${input.input.assetId}`
+            : `job-${input.kind}`,
+      }),
+    );
     mocks.listHighlightAssets.mockResolvedValue([{
       id: "highlight-asset-1",
       name: "MediaKit 高光",
@@ -968,30 +980,6 @@ describe("project workflow source selection", () => {
         sourceHighlightId: "source-highlight-1",
       },
     }]);
-    mocks.getPipelineWorkspaceSnapshot.mockResolvedValue({
-      project: {
-        analysisSourceAssetIds: ["asset-1", "asset-2"],
-        analysis: {
-          duration: 1200,
-          sourceVideoInfo: [],
-          clips: [],
-          highlights: [],
-        },
-        arcs: [{
-          id: "arc-shared",
-          title: "身份反转",
-          pitch: "主角完成身份反转",
-          evidenceClipIndexes: [0],
-          scores: {},
-        }],
-        highlights: [{
-          id: "source-highlight-1",
-          arcId: "arc-shared",
-        }],
-      },
-      jobs: [],
-    });
-
     const response = await POST(
       request({
         action: "run_full",
@@ -999,6 +987,12 @@ describe("project workflow source selection", () => {
           ...defaultProductionConfig,
           productionEntry: "uploaded_highlights",
           selectedHighlightAssetIds: ["highlight-asset-1"],
+          storyContextMode:
+            "highlights_with_originals",
+          selectedOriginalContextAssetIds: [
+            "asset-1",
+            "asset-2",
+          ],
         },
       }),
       {
@@ -1009,31 +1003,83 @@ describe("project workflow source selection", () => {
     );
 
     expect(response.status).toBe(202);
+    expect(mocks.startPipelineRun).toHaveBeenCalledWith(
+      "project-1",
+      expect.stringMatching(/^run-/),
+      ["highlight-asset-1"],
+    );
+    const backgroundCalls =
+      mocks.enqueuePipelineJob.mock.calls.filter(
+        ([input]) => input.kind === "media_analysis",
+      );
     expect(
-      mocks.startPipelineRunFromSharedArtifacts,
-    ).toHaveBeenCalledWith(
-      "project-1",
-      expect.stringMatching(/^run-/),
-      ["asset-1", "asset-2"],
-    );
-    expect(mocks.upsertHighlight).toHaveBeenCalledWith(
-      "project-1",
-      expect.objectContaining({
-        id: "highlight-upload-highlight-asset-1",
-        arcId: "arc-shared",
-        mode: "uploaded",
-      }),
-      expect.stringMatching(/^run-/),
-    );
+      backgroundCalls.map(([input]) => ({
+        assetId: input.input.assetId,
+        sourceAssetIds: input.input.sourceAssetIds,
+      })),
+    ).toEqual([
+      {
+        assetId: "asset-1",
+        sourceAssetIds: ["asset-1"],
+      },
+      {
+        assetId: "asset-2",
+        sourceAssetIds: ["asset-2"],
+      },
+    ]);
     expect(mocks.enqueuePipelineJob).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: "transition",
+        kind: "highlight_context",
         input: expect.objectContaining({
-          arcId: "arc-shared",
-          storyContextSource: "project_sources",
+          storyContextSource:
+            "selected_highlights_with_originals",
+          backgroundAssetIds: ["asset-1", "asset-2"],
+          backgroundAnalysisJobIds: [
+            "job-media-asset-1",
+            "job-media-asset-2",
+          ],
         }),
       }),
     );
+  });
+
+  it("rejects original background assets outside the current project", async () => {
+    mocks.listHighlightAssets.mockResolvedValue([{
+      id: "highlight-asset-1",
+      name: "用户高光",
+      sourceUrl: "https://example.com/highlight.mp4",
+      durationMs: 90000,
+      sizeBytes: 4096,
+      metadata: { sourceType: "user" },
+    }]);
+
+    const response = await POST(
+      request({
+        action: "run_full",
+        productionConfig: {
+          ...defaultProductionConfig,
+          productionEntry: "uploaded_highlights",
+          selectedHighlightAssetIds: ["highlight-asset-1"],
+          storyContextMode:
+            "highlights_with_originals",
+          selectedOriginalContextAssetIds: [
+            "asset-outside-project",
+          ],
+        },
+      }),
+      {
+        params: Promise.resolve({
+          projectId: "project-1",
+        }),
+      },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe(
+      "请选择至少一个属于当前项目的原视频作为剧情背景",
+    );
+    expect(mocks.startPipelineRun).not.toHaveBeenCalled();
   });
 
   it("rejects an asset outside the current project", async () => {

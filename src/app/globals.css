@@ -2901,6 +2901,86 @@ h2 {
   font-size: 15px;
 }
 
+.story-context-config {
+  display: grid;
+  gap: 12px;
+}
+
+.story-context-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.story-context-mode-options > label,
+.original-context-options > label {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  padding: 10px;
+}
+
+.story-context-mode-options > label.selected,
+.original-context-options > label.selected {
+  border-color: var(--accent);
+}
+
+.story-context-mode-options input,
+.original-context-options input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+}
+
+.story-context-mode-options span,
+.original-context-options span,
+.original-context-heading span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.story-context-mode-options strong,
+.original-context-options strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-context-mode-options small,
+.original-context-options small,
+.original-context-heading small {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.original-context-selection {
+  display: grid;
+  gap: 8px;
+}
+
+.original-context-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.original-context-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
 .highlight-config-group {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line-soft));
 }
@@ -9355,6 +9435,10 @@ h2 {
   }
 
   .execution-mode-options {
+    grid-template-columns: 1fr;
+  }
+
+  .story-context-mode-options {
     grid-template-columns: 1fr;
   }
 

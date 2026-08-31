@@ -2,12 +2,22 @@ import type {
   HighlightAnalysis,
   SharedStoryContext,
 } from "@/lib/pipeline-store";
+import type { MediaUnderstanding } from "@/lib/media-understanding";
 import type { StorylineResult } from "@/lib/providers/types";
 
 export function buildSharedStoryContext(
   analyses: HighlightAnalysis[],
-  updatedAt = new Date().toISOString(),
+  backgroundAnalysesOrUpdatedAt: MediaUnderstanding[] | string = [],
+  explicitUpdatedAt?: string,
 ): SharedStoryContext {
+  const backgroundAnalyses =
+    typeof backgroundAnalysesOrUpdatedAt === "string"
+      ? []
+      : backgroundAnalysesOrUpdatedAt;
+  const updatedAt =
+    typeof backgroundAnalysesOrUpdatedAt === "string"
+      ? backgroundAnalysesOrUpdatedAt
+      : explicitUpdatedAt ?? new Date().toISOString();
   const sourceVideoInfo = analyses.map((entry) => {
     const source = entry.analysis.sourceVideoInfo[0];
     return {
@@ -26,9 +36,14 @@ export function buildSharedStoryContext(
     sourceHighlightAssetIds: analyses.map(
       (entry) => entry.sourceHighlightAssetId,
     ),
+    backgroundSourceAssetIds: backgroundAnalyses.map(
+      (entry) => entry.assetId,
+    ),
     sourceVideoInfo,
     summary:
-      "同一部短剧的多个独立高光片段，共享上下文仅用于人物、关系、世界观和视觉风格。",
+      backgroundAnalyses.length > 0
+        ? "本批次高光是唯一剧情证据；关联原剧仅用于补充人物、关系、世界观和剧情因果背景。"
+        : "同一部短剧的多个独立高光片段，共享上下文仅用于人物、关系、世界观和视觉风格。",
     tags: [...new Set(sourceVideoInfo.flatMap((source) => source.tags))],
     updatedAt,
   };

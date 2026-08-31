@@ -23,6 +23,7 @@ import {
   type ProductionConfig,
 } from "@/lib/production-config";
 import type { SubtitleVerificationEvidence } from "@/lib/subtitle-video-verification";
+import type { MediaUnderstanding } from "@/lib/media-understanding";
 
 export type StoryArc = {
   id: string;
@@ -58,6 +59,7 @@ export type HighlightAnalysis = {
 
 export type SharedStoryContext = {
   sourceHighlightAssetIds: string[];
+  backgroundSourceAssetIds?: string[];
   sourceVideoInfo: Array<{
     sourceHighlightAssetId: string;
     highlightId: string;
@@ -126,6 +128,7 @@ export type CharacterBinding = {
 
 export type PipelineJobKind =
   | "analysis"
+  | "media_analysis"
   | "highlight_analysis"
   | "highlight_context"
   | "mine_arcs"
@@ -640,6 +643,7 @@ export type PipelineRun = {
   highlightRecommendation?: PipelineProject["highlightRecommendation"];
   analysis?: StorylineResult;
   highlightAnalyses?: HighlightAnalysis[];
+  mediaUnderstandings?: MediaUnderstanding[];
   sharedStoryContext?: SharedStoryContext;
   characters: CharacterBinding[];
   arcs: StoryArc[];
@@ -724,6 +728,7 @@ export type PipelineProject = {
   };
   analysis?: StorylineResult;
   highlightAnalyses?: HighlightAnalysis[];
+  mediaUnderstandings?: MediaUnderstanding[];
   sharedStoryContext?: SharedStoryContext;
   characters: CharacterBinding[];
   arcs: StoryArc[];
@@ -921,10 +926,12 @@ function normalizeProjectRuns(project: PipelineProject) {
   assignPipelineRunSequences(project.runs);
   project.characters ??= [];
   project.highlightAnalyses ??= [];
+  project.mediaUnderstandings ??= [];
   project.productionPlans ??= {};
   project.runs.forEach((run) => {
     run.characters ??= [];
     run.highlightAnalyses ??= [];
+    run.mediaUnderstandings ??= [];
     run.highlightAnalyses.forEach((entry) => {
       entry.sourceName ||=
         entry.analysis.sourceVideoInfo[0]?.title ||
@@ -961,6 +968,7 @@ function normalizeProjectRuns(project: PipelineProject) {
         currentRun.highlightRecommendation,
       analysis: currentRun.analysis,
       highlightAnalyses: currentRun.highlightAnalyses,
+      mediaUnderstandings: currentRun.mediaUnderstandings,
       sharedStoryContext: currentRun.sharedStoryContext,
       characters:
         currentRun.characters.length > 0
@@ -1038,6 +1046,7 @@ function normalizeProjectRuns(project: PipelineProject) {
         project.highlightRecommendation,
       analysis: project.analysis,
       highlightAnalyses: project.highlightAnalyses,
+      mediaUnderstandings: project.mediaUnderstandings,
       sharedStoryContext: project.sharedStoryContext,
       characters: project.characters,
       arcs: project.arcs,
@@ -1091,6 +1100,16 @@ function runArtifacts(run: PipelineRun) {
         `highlight-analysis-${highlightAnalysis.sourceHighlightAssetId}`,
       kind: "highlight_analysis",
       payload: highlightAnalysis,
+    });
+  }
+  for (const understanding of run.mediaUnderstandings ?? []) {
+    artifacts.push({
+      stage: "analysis",
+      artifactId:
+        `media-understanding-${understanding.assetRevisionKey}`,
+      kind: "media_understanding",
+      payload: understanding,
+      sourceUrl: understanding.sourceVideoUrl,
     });
   }
   if (run.sharedStoryContext) {
@@ -1193,6 +1212,7 @@ async function readDatabaseData(): Promise<PipelineData | null> {
           highlightRecommendation: run.highlightRecommendation,
           analysis: run.analysis,
           highlightAnalyses: run.highlightAnalyses ?? [],
+          mediaUnderstandings: run.mediaUnderstandings ?? [],
           sharedStoryContext: run.sharedStoryContext,
           characters: run.characters ?? [],
           arcs: run.arcs,
@@ -1458,6 +1478,7 @@ function syncCurrentRun(project: PipelineProject) {
     highlightRecommendation: project.highlightRecommendation,
     analysis: project.analysis,
     highlightAnalyses: project.highlightAnalyses,
+    mediaUnderstandings: project.mediaUnderstandings,
     sharedStoryContext: project.sharedStoryContext,
     arcs: project.arcs,
     highlights: project.highlights,
@@ -1530,6 +1551,7 @@ export async function startPipelineRun(
     project.highlightRecommendation = undefined;
     project.analysis = undefined;
     project.highlightAnalyses = [];
+    project.mediaUnderstandings = [];
     project.sharedStoryContext = undefined;
     project.arcs = [];
     project.highlights = [];
@@ -1543,6 +1565,7 @@ export async function startPipelineRun(
       sourceAssetIds,
       status: project.status,
       highlightAnalyses: [],
+      mediaUnderstandings: [],
       characters: project.characters,
       arcs: [],
       highlights: [],
@@ -1590,6 +1613,7 @@ export async function startPipelineRunFromSharedArtifacts(
       planReviewRequired: false,
       analysis: shared.analysis,
       highlightAnalyses: shared.highlightAnalyses ?? [],
+      mediaUnderstandings: shared.mediaUnderstandings ?? [],
       sharedStoryContext: shared.sharedStoryContext,
       characters:
         shared.characters.length > 0
@@ -1669,6 +1693,7 @@ export async function getPipelineProjectRun(
     highlightRecommendation: run.highlightRecommendation,
     analysis: run.analysis,
     highlightAnalyses: run.highlightAnalyses ?? [],
+    mediaUnderstandings: run.mediaUnderstandings ?? [],
     sharedStoryContext: run.sharedStoryContext,
     characters:
       run.characters.length > 0
@@ -1697,6 +1722,7 @@ function hydrateProjectFromRun(
     highlightRecommendation: run.highlightRecommendation,
     analysis: run.analysis,
     highlightAnalyses: run.highlightAnalyses ?? [],
+    mediaUnderstandings: run.mediaUnderstandings ?? [],
     sharedStoryContext: run.sharedStoryContext,
     characters:
       run.characters.length > 0
@@ -1845,6 +1871,10 @@ export function resolvePipelineWorkspaceProject(
         highlightAnalyses:
           run?.highlightAnalyses ??
           shared?.highlightAnalyses ??
+          [],
+        mediaUnderstandings:
+          run?.mediaUnderstandings ??
+          shared?.mediaUnderstandings ??
           [],
         sharedStoryContext:
           run?.sharedStoryContext ??
@@ -2131,6 +2161,79 @@ export async function findReusableHighlightAnalysis(
           sourceHighlightAssetId &&
         candidate.analysis.sourceVideoUrl === sourceVideoUrl,
     ) ?? null;
+}
+
+export async function findReusableMediaUnderstanding(
+  projectId: string,
+  assetRevisionKey: string,
+  analysisProfileHash: string,
+) {
+  const data = await readData();
+  const project = data.projects.find(
+    (item) => item.projectId === projectId,
+  );
+  if (!project) return null;
+  return [...(project.runs ?? [])]
+    .sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    )
+    .flatMap((run) =>
+      (run.mediaUnderstandings ?? []).map((understanding) => ({
+        runId: run.id,
+        understanding,
+      })),
+    )
+    .find(
+      (candidate) =>
+        candidate.understanding.assetRevisionKey ===
+          assetRevisionKey &&
+        candidate.understanding.analysisProfileHash ===
+          analysisProfileHash,
+    ) ?? null;
+}
+
+export async function saveMediaUnderstanding(
+  projectId: string,
+  runId: string,
+  input: Omit<MediaUnderstanding, "createdAt" | "updatedAt">,
+) {
+  return mutate((data) => {
+    const project = ensureProject(data, projectId);
+    const run = project.runs?.find(
+      (candidate) => candidate.id === runId,
+    );
+    if (!run) {
+      throw new Error("素材理解任务所属生产批次不存在");
+    }
+    const now = new Date().toISOString();
+    const understandings =
+      run.id === project.currentRunId
+        ? (project.mediaUnderstandings ??= [])
+        : (run.mediaUnderstandings ??= []);
+    const current = understandings.find(
+      (understanding) =>
+        understanding.assetRevisionKey ===
+          input.assetRevisionKey &&
+        understanding.analysisProfileHash ===
+          input.analysisProfileHash,
+    );
+    if (current) {
+      Object.assign(current, input, { updatedAt: now });
+    } else {
+      understandings.push({
+        ...input,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    if (run.id === project.currentRunId) {
+      project.updatedAt = now;
+      syncCurrentRun(project);
+      return project.mediaUnderstandings;
+    }
+    run.updatedAt = now;
+    return run.mediaUnderstandings;
+  });
 }
 
 export async function saveHighlightAnalysis(

@@ -1724,12 +1724,17 @@ export class ArkCreativeProvider
       sourceName: string;
       analysis: StorylineResult;
     }>,
+    backgroundAnalyses: Array<{
+      assetId: string;
+      sourceName: string;
+      analysis: StorylineResult;
+    }> = [],
   ) {
     const result = await this.chatJson<unknown>([
       {
         role: "system",
         content:
-          "你负责归纳同一部短剧多个独立高光片段的共享背景。只输出 JSON，字段为 summary、tags、characters、setting、visualStyle。characters 每项包含 name、aliases、role、relationships。仅提取跨片段稳定的人物身份、称呼、关系、世界观和视觉风格；不得推断片段先后顺序，不得把只在单个片段出现的具体事件、对白、因果或结局写成共享事实。不确定内容应省略。",
+          "你负责归纳同一部短剧多个独立高光片段的共享背景。只输出 JSON，字段为 summary、tags、characters、setting、visualStyle。characters 每项包含 name、aliases、role、relationships。highlights 是本批次唯一剧情证据；originalBackgrounds 只可补充人物身份、称呼、关系、世界观和因果背景，不得把原剧中但当前高光没有出现的事件、对白、镜头或结局写成当前高光事实。不得推断高光片段先后顺序，不确定内容应省略。",
       },
       {
         role: "user",
@@ -1741,6 +1746,16 @@ export class ArkCreativeProvider
             sourceName: entry.sourceName,
             sourceVideoInfo:
               entry.analysis.sourceVideoInfo,
+            clips: entry.analysis.clips.map((clip) => ({
+              title: clip.title,
+              summary: clip.summary,
+              dialogue: clip.dialogue,
+            })),
+          })),
+          originalBackgrounds: backgroundAnalyses.map((entry) => ({
+            assetId: entry.assetId,
+            sourceName: entry.sourceName,
+            sourceVideoInfo: entry.analysis.sourceVideoInfo,
             clips: entry.analysis.clips.map((clip) => ({
               title: clip.title,
               summary: clip.summary,

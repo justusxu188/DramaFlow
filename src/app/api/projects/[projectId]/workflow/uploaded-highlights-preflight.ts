@@ -13,10 +13,8 @@ import {
 } from "@/lib/production-config";
 import {
   confirmProductionPlan,
-  getPipelineWorkspaceSnapshot,
   saveProductionPlan,
   startPipelineRun,
-  startPipelineRunFromSharedArtifacts,
 } from "@/lib/pipeline-store";
 
 export async function prepareUploadedHighlightsRun(
@@ -52,6 +50,35 @@ export async function prepareUploadedHighlightsRun(
       0,
     ) / 1000;
   const productionConfig = normalizeProductionConfig(requestedConfig);
+  const originalContextIds = new Set(
+    productionConfig.storyContextMode ===
+      "highlights_with_originals"
+      ? productionConfig.selectedOriginalContextAssetIds
+      : [],
+  );
+  const selectedOriginals = project.assets.filter((asset) =>
+    originalContextIds.has(asset.id),
+  );
+  if (
+    productionConfig.storyContextMode ===
+      "highlights_with_originals" &&
+    (
+      selectedOriginals.length === 0 ||
+      selectedOriginals.length !== originalContextIds.size
+    )
+  ) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          error:
+            "请选择至少一个属于当前项目的原视频作为剧情背景",
+          requestId,
+        },
+        { status: 400 },
+      ),
+    };
+  }
   const uploadedHighlights = selectedHighlights.map((asset) => ({
     assetId: asset.id,
     highlightId: `highlight-upload-${asset.id}`,
@@ -62,36 +89,10 @@ export async function prepareUploadedHighlightsRun(
     sourceRunId: asset.metadata.sourceRunId,
     sourceHighlightId: asset.metadata.sourceHighlightId,
   }));
-  const originalSourceIds = project.assets
-    .slice(0, 30)
-    .map((asset) => asset.id);
-  const sharedWorkspace =
-    originalSourceIds.length > 0
-      ? (
-          await getPipelineWorkspaceSnapshot(projectId, "full_drama")
-        ).project
-      : null;
-  const reusableSourceIds = sharedWorkspace?.analysis
-    ? sharedWorkspace.analysisSourceAssetIds ?? []
-    : [];
-  const reusesProjectStory =
-    reusableSourceIds.length > 0 && Boolean(sharedWorkspace?.analysis);
-
-  if (reusesProjectStory) {
-    await startPipelineRunFromSharedArtifacts(
-      projectId,
-      runId,
-      reusableSourceIds,
-    );
-  } else {
-    await startPipelineRun(
-      projectId,
-      runId,
-      originalSourceIds.length > 0
-        ? originalSourceIds
-        : selectedHighlights.map((asset) => asset.id),
-    );
-  }
+  const evidenceSourceIds = selectedHighlights.map(
+    (asset) => asset.id,
+  );
+  await startPipelineRun(projectId, runId, evidenceSourceIds);
   await saveProductionPlan(
     projectId,
     productionConfig,
@@ -100,11 +101,7 @@ export async function prepareUploadedHighlightsRun(
       productionConfig,
     ),
     input.prerollType,
-    reusesProjectStory
-      ? reusableSourceIds
-      : originalSourceIds.length > 0
-        ? originalSourceIds
-        : selectedHighlights.map((asset) => asset.id),
+    evidenceSourceIds,
     runId,
   );
   await confirmProductionPlan(projectId, runId);
@@ -113,9 +110,7 @@ export async function prepareUploadedHighlightsRun(
     ok: true as const,
     projectId,
     selectedHighlights,
-    sharedWorkspace,
-    reusesProjectStory,
-    originalSourceIds,
+    selectedOriginals,
     uploadedHighlights,
     sharedInput: {
       runId,
@@ -123,9 +118,13 @@ export async function prepareUploadedHighlightsRun(
       prerollType: input.prerollType,
       uploadedHighlights,
       storyContextSource:
-        originalSourceIds.length > 0
-          ? "project_sources"
+        selectedOriginals.length > 0
+          ? "selected_highlights_with_originals"
           : "selected_highlights",
+      evidenceAssetIds: evidenceSourceIds,
+      backgroundAssetIds: selectedOriginals.map(
+        (asset) => asset.id,
+      ),
       prerollCreativeSystemPrompt:
         creativeSettings.prerollCreativeSystemPrompt,
       prerollScriptSystemPrompt:

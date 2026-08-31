@@ -136,6 +136,9 @@ const workspaceStages: Array<{
 
 const stageNames: Record<string, string> = {
   analysis: "剧情理解",
+  media_analysis: "素材剧情理解",
+  highlight_analysis: "高光剧情理解",
+  highlight_context: "批次剧情上下文",
   mine_arcs: "爽点提炼",
   highlight: "高光智剪",
   transition: "开头理解",
@@ -166,6 +169,7 @@ export function BatchPipelinePanel({
   executionMode,
   onExecutionModeChange,
   hasSources,
+  sourceAssets = [],
   highlightAssets = [],
   selectedAssetIds,
   selectedAssets,
@@ -178,12 +182,22 @@ export function BatchPipelinePanel({
     mode: ProductionConfig["executionMode"],
   ) => void;
   hasSources: boolean;
+  sourceAssets?: Array<{
+    id: string;
+    name: string;
+    sourceUrl: string;
+    durationMs: number | null;
+    episodeNumber: number | null;
+  }>;
   highlightAssets?: Array<{
     id: string;
     name: string;
     sourceUrl: string;
     durationMs: number | null;
-    metadata: { sourceType: "user" | "mediakit" };
+    metadata: {
+      sourceType: "user" | "mediakit";
+      sourceAssetId?: string;
+    };
   }>;
   selectedAssetIds: string[];
   selectedAssets: Array<{ id: string; durationMs: number | null }>;
@@ -474,6 +488,9 @@ export function BatchPipelinePanel({
   };
   const hasSelectedHighlights =
     productionConfig.selectedHighlightAssetIds.length > 0;
+  const hasValidStoryContext =
+    productionConfig.storyContextMode === "highlights_only" ||
+    productionConfig.selectedOriginalContextAssetIds.length > 0;
   const currentRunHighlightAssetIds =
     pipeline?.highlights.flatMap((highlight) =>
       highlight.id.startsWith("highlight-upload-")
@@ -492,7 +509,7 @@ export function BatchPipelinePanel({
       )
     );
   const hasValidProductionInput = usesUploadedHighlights
-    ? hasSelectedHighlights
+    ? hasSelectedHighlights && hasValidStoryContext
     : hasSources &&
       selectedAssetIds.length > 0 &&
       hasValidHighlightSettings;
@@ -922,7 +939,9 @@ export function BatchPipelinePanel({
     if (!hasValidProductionInput) {
       setError(
         usesUploadedHighlights
-          ? "请至少选择一个已有高光视频"
+          ? !hasSelectedHighlights
+            ? "请至少选择一个已有高光视频"
+            : "请选择至少一个用于补充剧情背景的原视频"
           : "请选择源视频并填写有效的目标时长和输出视频数",
       );
       return;
@@ -1819,6 +1838,7 @@ export function BatchPipelinePanel({
       {activeStage === "plan" && (
         <PipelineProductionPlanStage
           productionConfig={productionConfig}
+          sourceAssets={sourceAssets}
           highlightAssets={highlightAssets}
           hasSources={hasSources}
           selectedAssetIds={selectedAssetIds}

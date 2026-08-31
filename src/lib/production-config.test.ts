@@ -118,6 +118,49 @@ describe("highlight parameter recommendations", () => {
     });
   });
 
+  it("defaults historical uploaded-highlight plans to highlights only", () => {
+    const normalized = normalizeProductionConfig({
+      ...defaultProductionConfig,
+      productionEntry: "uploaded_highlights",
+      storyContextMode: undefined,
+      selectedOriginalContextAssetIds: undefined,
+    });
+
+    expect(normalized).toMatchObject({
+      storyContextMode: "highlights_only",
+      selectedOriginalContextAssetIds: [],
+    });
+  });
+
+  it("deduplicates explicit original background selections", () => {
+    const normalized = normalizeProductionConfig({
+      ...defaultProductionConfig,
+      productionEntry: "uploaded_highlights",
+      storyContextMode:
+        "highlights_with_originals",
+      selectedOriginalContextAssetIds: [
+        "source-1",
+        "source-1",
+        "source-2",
+      ],
+    });
+
+    expect(normalized.selectedOriginalContextAssetIds).toEqual([
+      "source-1",
+      "source-2",
+    ]);
+  });
+
+  it("clears original selections when background context is disabled", () => {
+    const normalized = normalizeProductionConfig({
+      ...defaultProductionConfig,
+      storyContextMode: "highlights_only",
+      selectedOriginalContextAssetIds: ["source-1"],
+    });
+
+    expect(normalized.selectedOriginalContextAssetIds).toEqual([]);
+  });
+
   it("calculates count and count limit from target duration", () => {
     expect(recommendHighlightSettings(1800, {
       ...defaultProductionConfig,

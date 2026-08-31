@@ -644,7 +644,8 @@ describe("pipeline interactions", () => {
     ).toBeTruthy();
   });
 
-  it("explains project episode reuse in highlight-preroll production", async () => {
+  it("defaults to highlight evidence and lets users opt into original context", async () => {
+    const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -661,6 +662,13 @@ describe("pipeline interactions", () => {
           "highlight-preroll",
         )}
         hasSources
+        sourceAssets={[{
+          id: "source-1",
+          name: "原剧第一集.mp4",
+          sourceUrl: "https://example.com/source-1.mp4",
+          durationMs: 600000,
+          episodeNumber: 1,
+        }]}
         highlightAssets={[{
           id: "highlight-asset-1",
           name: "项目高光",
@@ -680,9 +688,98 @@ describe("pipeline interactions", () => {
 
     expect(
       await screen.findByText(
-        /使用同项目原剧的剧情理解、爽点故事线/,
+        /默认只理解本批次高光/,
       ),
     ).toBeTruthy();
+    const highlightsOnly = screen.getByRole("radio", {
+      name: /仅理解本批次高光/,
+    }) as HTMLInputElement;
+    expect(highlightsOnly.checked).toBe(true);
+
+    await user.click(
+      screen.getByRole("radio", {
+        name: /结合原剧剧情背景/,
+      }),
+    );
+
+    const originalContext = screen.getByRole("checkbox", {
+      name: /原剧第一集/,
+    }) as HTMLInputElement;
+    expect(originalContext.checked).toBe(false);
+  });
+
+  it("preselects only originals linked to selected highlights", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: null,
+        jobs: [],
+        settings: {
+          ...defaultProductionConfig,
+          selectedHighlightAssetIds: ["highlight-asset-1"],
+        },
+      }),
+    } as Response);
+
+    render(
+      <BatchPipelinePanel
+        projectId="project-real"
+        workType={parseCreativeWorkType(
+          "highlight-preroll",
+        )}
+        hasSources
+        sourceAssets={[
+          {
+            id: "source-1",
+            name: "原剧第一集.mp4",
+            sourceUrl: "https://example.com/source-1.mp4",
+            durationMs: 600000,
+            episodeNumber: 1,
+          },
+          {
+            id: "source-2",
+            name: "原剧第二集.mp4",
+            sourceUrl: "https://example.com/source-2.mp4",
+            durationMs: 600000,
+            episodeNumber: 2,
+          },
+        ]}
+        highlightAssets={[{
+          id: "highlight-asset-1",
+          name: "第一集高光",
+          sourceUrl: "https://example.com/highlight.mp4",
+          durationMs: 90000,
+          metadata: {
+            sourceType: "mediakit",
+            sourceAssetId: "source-1",
+          },
+        }]}
+        selectedAssetIds={["source-1", "source-2"]}
+        selectedAssets={[
+          { id: "source-1", durationMs: 600000 },
+          { id: "source-2", durationMs: 600000 },
+        ]}
+        probingDurations={false}
+        sourceCount={2}
+      />,
+    );
+
+    await screen.findByText(/默认只理解本批次高光/);
+    await user.click(
+      screen.getByRole("radio", {
+        name: /结合原剧剧情背景/,
+      }),
+    );
+
+    const linkedOriginal = screen.getByRole("checkbox", {
+      name: /原剧第一集/,
+    }) as HTMLInputElement;
+    const unrelatedOriginal = screen.getByRole("checkbox", {
+      name: /原剧第二集/,
+    }) as HTMLInputElement;
+    expect(linkedOriginal.checked).toBe(true);
+    expect(unrelatedOriginal.checked).toBe(false);
   });
 
   it("separates the next highlight selection from current batch scripts", async () => {

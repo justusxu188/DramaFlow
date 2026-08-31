@@ -6,6 +6,10 @@ import type {
 } from "./start-production-types";
 import { prepareUploadedHighlightsRun } from "./uploaded-highlights-preflight";
 import { runPipelineJobNow } from "@/lib/pipeline-runner";
+import {
+  mediaAnalysisProfileHash,
+  mediaAssetRevisionKey,
+} from "@/lib/media-understanding";
 import { normalizeProductionConfig } from "@/lib/production-config";
 import {
   enqueuePipelineJob,
@@ -30,124 +34,33 @@ export async function startUploadedHighlights(
   const {
     projectId,
     selectedHighlights,
-    sharedWorkspace,
-    reusesProjectStory,
-    originalSourceIds,
+    selectedOriginals,
     uploadedHighlights,
     sharedInput,
   } = prepared;
-  const sharedArcs = sharedWorkspace?.arcs ?? [];
-
-  if (!reusesProjectStory && originalSourceIds.length === 0) {
-    const analysisJobs = [];
-    for (const [index, asset] of selectedHighlights.entries()) {
-      const uploaded = uploadedHighlights[index];
-      await upsertHighlight(projectId, {
-        id: uploaded.highlightId,
-        arcId: "",
-        mode: "uploaded",
-        status: "completed",
-        result: {
-          duration: uploaded.duration,
-          videoUrls: [asset.sourceUrl],
-          variants: [{
-            index: 0,
-            duration: uploaded.duration,
-            size: asset.sizeBytes,
-            videoUrl: asset.sourceUrl,
-            clips: [],
-          }],
-          storyboard: [],
-        },
-      }, sharedInput.runId);
-      const analysisJob = await enqueuePipelineJob({
-        projectId,
-        kind: "highlight_analysis",
-        input: {
-          ...sharedInput,
-          sourceHighlightAssetId: asset.id,
-          highlightId: uploaded.highlightId,
-          sourceName: asset.name,
-          videoUrl: asset.sourceUrl,
-          sourceAssetIds: [asset.id],
-        },
-      });
-      analysisJobs.push(analysisJob);
-      void runPipelineJobNow(analysisJob.id);
-    }
-    const contextJob = await enqueuePipelineJob({
-      projectId,
-      kind: "highlight_context",
-      input: {
-        ...sharedInput,
-        analysisJobIds: analysisJobs.map((job) => job.id),
-        sourceAssetIds: selectedHighlights.map((asset) => asset.id),
-      },
+  const highlightAnalysisProfileHash =
+    mediaAnalysisProfileHash({
+      enableSnapshot:
+        requestedConfig.characterMode ===
+        "drama_character",
     });
-    void runPipelineJobNow(contextJob.id);
-    return NextResponse.json(
-      {
-        data: [...analysisJobs, contextJob],
-        reused: [],
-        storyContextSource: "selected_highlights",
-        requestId,
-      },
-      { status: 202 },
-    );
-  }
-
-  if (!reusesProjectStory || sharedArcs.length === 0) {
-    const data = await enqueuePipelineJob({
-      projectId,
-      kind: reusesProjectStory ? "mine_arcs" : "analysis",
-      input: {
-        ...sharedInput,
-        sourceAssetIds:
-          originalSourceIds.length > 0
-            ? originalSourceIds
-            : selectedHighlights.map((asset) => asset.id),
-        videoUrls:
-          originalSourceIds.length > 0
-            ? project.assets
-                .slice(0, 30)
-                .map((asset) => asset.sourceUrl)
-            : selectedHighlights.map((asset) => asset.sourceUrl),
-      },
-    });
-    void runPipelineJobNow(data.id);
-    return NextResponse.json(
-      {
-        data,
-        reused: reusesProjectStory ? ["analysis"] : [],
-        storyContextSource: sharedInput.storyContextSource,
-        requestId,
-      },
-      { status: 202 },
-    );
-  }
-
-  const jobs = [];
+  const backgroundAnalysisProfileHash =
+    mediaAnalysisProfileHash();
+  const highlightAnalysisJobs = [];
   for (const [index, asset] of selectedHighlights.entries()) {
-    const sourceHighlight = sharedWorkspace?.highlights.find(
-      (highlight) =>
-        highlight.id === asset.metadata.sourceHighlightId,
-    );
-    const arc =
-      sharedArcs.find(
-        (candidate) => candidate.id === sourceHighlight?.arcId,
-      ) ?? sharedArcs[index % sharedArcs.length];
+    const uploaded = uploadedHighlights[index];
     await upsertHighlight(projectId, {
-      id: `highlight-upload-${asset.id}`,
-      arcId: arc.id,
+      id: uploaded.highlightId,
+      arcId: "",
       mode: "uploaded",
       status: "completed",
       result: {
-        duration: uploadedHighlights[index].duration,
+        duration: uploaded.duration,
         videoUrls: [asset.sourceUrl],
         variants: [
           {
             index: 0,
-            duration: uploadedHighlights[index].duration,
+            duration: uploaded.duration,
             size: asset.sizeBytes,
             videoUrl: asset.sourceUrl,
             clips: [],
@@ -156,23 +69,73 @@ export async function startUploadedHighlights(
         storyboard: [],
       },
     }, sharedInput.runId);
-    const data = await enqueuePipelineJob({
+    const analysisJob = await enqueuePipelineJob({
       projectId,
-      kind: "transition",
+      kind: "highlight_analysis",
       input: {
-        arcId: arc.id,
-        highlightId: `highlight-upload-${asset.id}`,
         ...sharedInput,
+        sourceHighlightAssetId: asset.id,
+        highlightId: uploaded.highlightId,
+        sourceName: asset.name,
+        videoUrl: asset.sourceUrl,
+        sourceAssetIds: [asset.id],
+        assetRevisionKey: mediaAssetRevisionKey(asset),
+        analysisProfileHash:
+          highlightAnalysisProfileHash,
       },
     });
-    jobs.push(data);
-    void runPipelineJobNow(data.id);
+    highlightAnalysisJobs.push(analysisJob);
+    void runPipelineJobNow(analysisJob.id);
   }
+
+  const backgroundAnalysisJobs = [];
+  for (const asset of selectedOriginals) {
+    const analysisJob = await enqueuePipelineJob({
+      projectId,
+      kind: "media_analysis",
+      input: {
+        ...sharedInput,
+        assetId: asset.id,
+        assetRevisionKey: mediaAssetRevisionKey(asset),
+        analysisProfileHash:
+          backgroundAnalysisProfileHash,
+        sourceKind: "source",
+        sourceName: asset.name,
+        videoUrl: asset.sourceUrl,
+        sourceAssetIds: [asset.id],
+      },
+    });
+    backgroundAnalysisJobs.push(analysisJob);
+    void runPipelineJobNow(analysisJob.id);
+  }
+
+  const contextJob = await enqueuePipelineJob({
+    projectId,
+    kind: "highlight_context",
+    input: {
+      ...sharedInput,
+      analysisJobIds: highlightAnalysisJobs.map(
+        (job) => job.id,
+      ),
+      backgroundAnalysisJobIds: backgroundAnalysisJobs.map(
+        (job) => job.id,
+      ),
+      sourceAssetIds: selectedHighlights.map(
+        (asset) => asset.id,
+      ),
+    },
+  });
+  void runPipelineJobNow(contextJob.id);
+
   return NextResponse.json(
     {
-      data: jobs,
-      reused: ["analysis", "arcs"],
-      storyContextSource: "project_sources",
+      data: [
+        ...highlightAnalysisJobs,
+        ...backgroundAnalysisJobs,
+        contextJob,
+      ],
+      reused: [],
+      storyContextSource: sharedInput.storyContextSource,
       requestId,
     },
     { status: 202 },

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   AlertCircle,
+  BookOpenText,
   Film,
   Images,
 } from "lucide-react";
@@ -31,11 +32,21 @@ export type ProductionPlanHighlightAsset = {
   name: string;
   sourceUrl: string;
   durationMs: number | null;
-  metadata: { sourceType: "user" | "mediakit" };
+  metadata: {
+    sourceType: "user" | "mediakit";
+    sourceAssetId?: string;
+  };
 };
 
 type PipelineProductionPlanStageProps = {
   productionConfig: ProductionConfig;
+  sourceAssets: Array<{
+    id: string;
+    name: string;
+    sourceUrl: string;
+    durationMs: number | null;
+    episodeNumber: number | null;
+  }>;
   highlightAssets: ProductionPlanHighlightAsset[];
   hasSources: boolean;
   selectedAssetIds: string[];
@@ -62,6 +73,7 @@ type PipelineProductionPlanStageProps = {
 
 export function PipelineProductionPlanStage({
   productionConfig,
+  sourceAssets,
   highlightAssets,
   hasSources,
   selectedAssetIds,
@@ -84,6 +96,22 @@ export function PipelineProductionPlanStage({
 }: PipelineProductionPlanStageProps) {
   const [showHighlightLibrary, setShowHighlightLibrary] =
     useState(false);
+  const linkedOriginalContextAssetIds = [
+    ...new Set(
+      highlightAssets
+        .filter((asset) =>
+          productionConfig.selectedHighlightAssetIds.includes(
+            asset.id,
+          ),
+        )
+        .map((asset) => asset.metadata.sourceAssetId)
+        .filter(
+          (assetId): assetId is string =>
+            Boolean(assetId) &&
+            sourceAssets.some((asset) => asset.id === assetId),
+        ),
+    ),
+  ];
 
   return (
     <>
@@ -137,7 +165,7 @@ export function PipelineProductionPlanStage({
             <div className="pipeline-callout">
               <Film size={16} />
               {hasSources
-                ? "该项目已有原剧集：前贴脚本使用同项目原剧的剧情理解、爽点故事线，并结合每条高光前 10 秒生成。"
+                ? "该项目已有原剧集。默认只理解本批次高光；需要人物关系或剧情因果时，可主动引用原剧背景。"
                 : "该项目没有原剧集：系统会完整理解本次选中的高光视频，提炼剧情与爽点，再结合每条高光前 10 秒生成。"}
             </div>
             {!showHighlightLibrary &&
@@ -209,6 +237,142 @@ export function PipelineProductionPlanStage({
               </div>
             )}
           </div>
+        ) : null}
+
+        {usesUploadedHighlights && hasSources ? (
+          <fieldset className="pipeline-config-group story-context-config">
+            <legend>剧情理解范围</legend>
+            <div className="story-context-mode-options">
+              <label
+                className={
+                  productionConfig.storyContextMode ===
+                  "highlights_only"
+                    ? "selected"
+                    : ""
+                }
+              >
+                <input
+                  type="radio"
+                  name="story-context-mode"
+                  checked={
+                    productionConfig.storyContextMode ===
+                    "highlights_only"
+                  }
+                  onChange={() =>
+                    onConfigPatch({
+                      storyContextMode: "highlights_only",
+                      selectedOriginalContextAssetIds: [],
+                    })
+                  }
+                />
+                <span>
+                  <strong>仅理解本批次高光</strong>
+                  <small>推荐。爽点与脚本只读取当前高光证据。</small>
+                </span>
+              </label>
+              <label
+                className={
+                  productionConfig.storyContextMode ===
+                  "highlights_with_originals"
+                    ? "selected"
+                    : ""
+                }
+              >
+                <input
+                  type="radio"
+                  name="story-context-mode"
+                  checked={
+                    productionConfig.storyContextMode ===
+                    "highlights_with_originals"
+                  }
+                  onChange={() =>
+                    onConfigPatch({
+                      storyContextMode:
+                        "highlights_with_originals",
+                      selectedOriginalContextAssetIds:
+                        linkedOriginalContextAssetIds,
+                    })
+                  }
+                />
+                <span>
+                  <strong>结合原剧剧情背景</strong>
+                  <small>原剧仅补充人物、关系和因果，不作为爽点证据。</small>
+                </span>
+              </label>
+            </div>
+            {productionConfig.storyContextMode ===
+              "highlights_with_originals" && (
+              <div className="original-context-selection">
+                <div className="original-context-heading">
+                  <BookOpenText size={16} />
+                  <span>
+                    选择关联原剧
+                    <small>
+                      已选择{" "}
+                      {
+                        productionConfig
+                          .selectedOriginalContextAssetIds.length
+                      }{" "}
+                      个
+                    </small>
+                  </span>
+                </div>
+                <div className="original-context-options">
+                  {sourceAssets.map((asset) => {
+                    const checked =
+                      productionConfig
+                        .selectedOriginalContextAssetIds
+                        .includes(asset.id);
+                    return (
+                      <label
+                        className={checked ? "selected" : ""}
+                        key={asset.id}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            onConfigChange(
+                              "selectedOriginalContextAssetIds",
+                              checked
+                                ? productionConfig
+                                    .selectedOriginalContextAssetIds
+                                    .filter((id) => id !== asset.id)
+                                : [
+                                    ...productionConfig
+                                      .selectedOriginalContextAssetIds,
+                                    asset.id,
+                                  ],
+                            )
+                          }
+                        />
+                        <span>
+                          <strong>{asset.name}</strong>
+                          <small>
+                            {asset.episodeNumber
+                              ? `第 ${asset.episodeNumber} 集`
+                              : "原视频"}
+                            {asset.durationMs
+                              ? ` · ${Math.round(
+                                  asset.durationMs / 1000,
+                                )} 秒`
+                              : ""}
+                          </small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {!productionConfig
+                  .selectedOriginalContextAssetIds.length && (
+                  <div className="pipeline-callout">
+                    <AlertCircle size={16} />
+                    请选择至少一个用于补充剧情背景的原视频。
+                  </div>
+                )}
+              </div>
+            )}
+          </fieldset>
         ) : null}
 
         <div className="pipeline-config-groups">

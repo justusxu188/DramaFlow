@@ -20,6 +20,7 @@ export function pipelineJobStage(
 ): PipelineStatusStage {
   if (
     job.kind === "analysis" ||
+    job.kind === "media_analysis" ||
     job.kind === "highlight_analysis" ||
     job.kind === "highlight_context"
   ) {
@@ -49,6 +50,9 @@ function taskUnit(job: PipelineJobStatusInput) {
       ? String(job.input[key])
       : "";
   if (stage === "analysis") {
+    if (job.kind === "media_analysis") {
+      return `${stage}:media:${value("assetId") || job.id}`;
+    }
     if (job.kind === "highlight_analysis") {
       return `${stage}:${value("sourceHighlightAssetId") || job.id}`;
     }

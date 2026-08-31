@@ -179,6 +179,12 @@ export const productionEntries = [
   "uploaded_highlights",
   "batch_highlights",
 ] as const;
+export const storyContextModes = [
+  "highlights_only",
+  "highlights_with_originals",
+] as const;
+export type StoryContextMode =
+  (typeof storyContextModes)[number];
 export const executionModes = ["manual", "agent"] as const;
 export const highlightCutModes = ["Mixed", "Sequential"] as const;
 export const highlightContentTypes = ["animation", "live_action"] as const;
@@ -246,6 +252,8 @@ export type ProductionConfig = {
   productionEntry: (typeof productionEntries)[number];
   executionMode: (typeof executionModes)[number];
   selectedHighlightAssetIds: string[];
+  storyContextMode: StoryContextMode;
+  selectedOriginalContextAssetIds: string[];
   sellingPointCount: number;
   scriptCount: number;
   scriptDurationMin: number;
@@ -286,6 +294,8 @@ export const defaultProductionConfig: ProductionConfig = {
   productionEntry: "full_drama",
   executionMode: "manual",
   selectedHighlightAssetIds: [],
+  storyContextMode: "highlights_only",
+  selectedOriginalContextAssetIds: [],
   sellingPointCount: 3,
   scriptCount: 3,
   scriptDurationMin: 12,
@@ -329,6 +339,13 @@ export const productionConfigObjectSchema = z.object({
   productionEntry: z.enum(productionEntries).default("full_drama"),
   executionMode: z.enum(executionModes).default("manual"),
   selectedHighlightAssetIds: z.array(z.string().min(1)).max(100).default([]),
+  storyContextMode: z
+    .enum(storyContextModes)
+    .default(defaultProductionConfig.storyContextMode),
+  selectedOriginalContextAssetIds: z
+    .array(z.string().min(1))
+    .max(30)
+    .default([]),
   sellingPointCount: z.number().int().min(1).max(6),
   scriptCount: z.number().int().min(1).max(6),
   scriptDurationMin: z.number().int().min(3),
@@ -434,6 +451,11 @@ export function normalizeProductionConfig(
   input: Partial<ProductionConfig> | undefined,
 ): ProductionConfig {
   const source = input ?? {};
+  const storyContextMode = enumValue(
+    source.storyContextMode,
+    storyContextModes,
+    defaultProductionConfig.storyContextMode,
+  );
   const legacyExpressionType = enumValue(
     source.expressionType,
     expressionTypes,
@@ -472,6 +494,14 @@ export function normalizeProductionConfig(
           .filter((value): value is string => typeof value === "string")
           .slice(0, 100)
       : [],
+    storyContextMode,
+    selectedOriginalContextAssetIds:
+      storyContextMode === "highlights_with_originals" &&
+      Array.isArray(source.selectedOriginalContextAssetIds)
+        ? [...new Set(source.selectedOriginalContextAssetIds)]
+            .filter((value): value is string => typeof value === "string")
+            .slice(0, 30)
+        : [],
     sellingPointCount: Math.round(
       numberInRange(source.sellingPointCount, 3, 1, 6),
     ),

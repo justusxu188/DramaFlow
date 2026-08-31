@@ -51,7 +51,10 @@ type ProjectDetail = {
     name: string;
     sourceUrl: string;
     durationMs: number | null;
-    metadata: { sourceType: "user" | "mediakit" };
+    metadata: {
+      sourceType: "user" | "mediakit";
+      sourceAssetId?: string;
+    };
   }>;
 };
 
@@ -327,6 +330,7 @@ function CreativePipelineWorkspace({
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
         hasSources={Boolean(project?.sourceCount)}
+        sourceAssets={project?.assets ?? []}
         highlightAssets={project?.highlightAssets ?? []}
         selectedAssetIds={selectedAssetIds}
         selectedAssets={

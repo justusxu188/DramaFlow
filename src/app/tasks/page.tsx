@@ -24,6 +24,7 @@ export const dynamic = "force-dynamic";
 
 const stageNames: Record<string, string> = {
   analysis: "剧情理解（故事线分析）",
+  media_analysis: "素材剧情理解",
   highlight_analysis: "高光剧情理解",
   highlight_context: "共享剧情上下文",
   mine_arcs: "爽点提炼",
