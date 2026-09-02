@@ -70,8 +70,16 @@ import {
 import { verifyBurnedSubtitles } from "@/lib/subtitle-video-verification";
 import { planVideoSegments } from "@/lib/video-shot-segmentation";
 import { env } from "@/lib/env";
+import { isTransientNetworkError } from "@/lib/network-errors";
 
 export { planVideoSegments } from "@/lib/video-shot-segmentation";
+
+/**
+ * 瞬时网络错误（公网链路抖动）的退避重试上限。
+ * 这类重试不消耗 attempts，指数退避 30s 起、上限 5 分钟，
+ * 可覆盖约 30 分钟的故障窗口；超过后回落到常规 attempts 失败逻辑。
+ */
+const MAX_TRANSIENT_RETRIES = 8;
 
 const ark = new ArkCreativeProvider();
 
@@ -2333,12 +2341,41 @@ async function executeClaimedJob(job: PipelineJob) {
     return { processed: true, jobId: job.id, kind: job.kind };
   } catch (error) {
     const message = error instanceof Error ? error.message : "流水线任务失败";
+    const transientRetries = Number(job.input._transientRetries ?? 0);
+    if (
+      isTransientNetworkError(error) &&
+      Number.isFinite(transientRetries) &&
+      transientRetries < MAX_TRANSIENT_RETRIES
+    ) {
+      const backoffMs = Math.min(
+        30_000 * 2 ** transientRetries,
+        300_000,
+      );
+      await requeuePipelineJob(job.id, {
+        attempts: job.attempts,
+        progress: job.progress,
+        error: `网络波动，${Math.round(backoffMs / 1000)} 秒后自动重试（第 ${transientRetries + 1} 次）：${message}`,
+        runAfter: new Date(Date.now() + backoffMs).toISOString(),
+        input: { ...job.input, _transientRetries: transientRetries + 1 },
+      });
+      console.warn(
+        `[pipeline] transient network error on ${job.id} (${job.kind}), retry ${transientRetries + 1}/${MAX_TRANSIENT_RETRIES} in ${Math.round(backoffMs / 1000)}s: ${message}`,
+      );
+      return {
+        processed: true,
+        jobId: job.id,
+        kind: job.kind,
+        error: message,
+        retried: true,
+      };
+    }
     const attempts = job.attempts + 1;
     if (attempts < 3) {
       await requeuePipelineJob(job.id, {
         attempts,
         error: message,
         progress: job.progress,
+        input: { ...job.input, _transientRetries: 0 },
       });
     } else {
       const renderId = value<string>(

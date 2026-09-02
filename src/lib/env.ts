@@ -32,6 +32,12 @@ const serverEnvSchema = z.object({
     .min(30000)
     .max(600000)
     .default(300000),
+  ARK_POLL_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(15000)
+    .max(300000)
+    .default(60000),
   ARK_VIDEO_MODEL_SEEDANCE_2_0_MINI: z.string().optional(),
   ARK_VIDEO_MODEL_SEEDANCE_2_0_FAST: z.string().optional(),
   ARK_VIDEO_MAX_DURATION: z.coerce.number().int().min(2).default(15),
@@ -57,6 +63,12 @@ const serverEnvSchema = z.object({
     .default(120_000),
   TOS_ENDPOINT: z.string().optional(),
   TOS_REGION: z.string().default("cn-beijing"),
+  TOS_TRANSFER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(60000)
+    .max(900000)
+    .default(300000),
   TOS_BUCKET: z.string().optional(),
   TOS_ACCESS_KEY_ID: z.string().optional(),
   TOS_SECRET_ACCESS_KEY: z.string().optional(),

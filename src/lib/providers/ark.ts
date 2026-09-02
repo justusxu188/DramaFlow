@@ -9,6 +9,11 @@ import {
 import { env } from "@/lib/env";
 import { compactSharedStoryContext } from "@/lib/highlight-analysis";
 import {
+  isTransientNetworkError,
+  timeoutError,
+  wrapFetchError,
+} from "@/lib/network-errors";
+import {
   videoPromptSystemPromptHash,
   type HighlightVisualStyle,
   type ScriptVariant,
@@ -1548,10 +1553,13 @@ export class ArkCreativeProvider
     | "getPrerollTask"
   >
 {
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init: RequestInit,
+    timeoutMs: number = env.ARK_TEXT_TIMEOUT_MS ?? 300000,
+  ): Promise<T> {
     if (!env.ARK_API_KEY) throw new Error("ARK_API_KEY 未配置");
     const controller = new AbortController();
-    const timeoutMs = env.ARK_TEXT_TIMEOUT_MS ?? 300000;
     const timeout = setTimeout(
       () => controller.abort(),
       timeoutMs,
@@ -1570,11 +1578,11 @@ export class ArkCreativeProvider
       });
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(
-          `Ark 请求超时（${Math.round(timeoutMs / 1000)} 秒）`,
+        throw timeoutError(
+          `Ark 请求超时（${Math.round(timeoutMs / 1000)} 秒，网络波动将自动重试）`,
         );
       }
-      throw error;
+      throw wrapFetchError(error, "Ark 服务");
     } finally {
       clearTimeout(timeout);
     }
@@ -1587,6 +1595,33 @@ export class ArkCreativeProvider
       throw new Error(`Ark 请求失败 (${response.status}, request: ${requestId})${detail}`);
     }
     return (await response.json()) as T;
+  }
+
+  /**
+   * 轮询类 GET 请求：短超时 + 瞬时网络错误自动重试（2s/4s 退避），
+   * 避免一次连接抖动直接判失败、一次挂起冻结整个 worker tick。
+   */
+  private async requestWithRetry<T>(
+    path: string,
+    init: RequestInit,
+    timeoutMs?: number,
+    retries = 2,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await this.request<T>(path, init, timeoutMs);
+      } catch (error) {
+        lastError = error;
+        if (!isTransientNetworkError(error) || attempt === retries) {
+          throw error;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, 2000 * (attempt + 1)),
+        );
+      }
+    }
+    throw lastError;
   }
 
   private parseChatJson<T>(content: string): T {
@@ -2561,9 +2596,10 @@ global_visual_style、character_constraints、scene_prop_constraints 及每个 c
   }
 
   async getPrerollTask(id: string) {
-    const data = await this.request<ArkVideoTask>(
+    const data = await this.requestWithRetry<ArkVideoTask>(
       `/contents/generations/tasks/${encodeURIComponent(id)}`,
       { method: "GET" },
+      env.ARK_POLL_TIMEOUT_MS ?? 60000,
     );
     const status = normalizeProviderStatus(data.status);
     return {

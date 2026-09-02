@@ -151,6 +151,8 @@ export type PipelineJob = {
   input: Record<string, unknown>;
   result?: unknown;
   error?: string;
+  /** 退避重试：排队任务在此 ISO 时间之前不会被 worker 领取 */
+  runAfter?: string;
   attempts: number;
   createdAt: string;
   completedAt?: string;
@@ -1982,12 +1984,19 @@ export async function enqueuePipelineJob(input: {
 
 export async function claimNextPipelineJob() {
   return mutate((data) => {
+    const now = Date.now();
     const job = data.jobs
       .filter((item) => item.status === "queued")
+      .filter((item) => {
+        if (!item.runAfter) return true;
+        const runAfterMs = Date.parse(item.runAfter);
+        return Number.isNaN(runAfterMs) || runAfterMs <= now;
+      })
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
     if (!job) return null;
     job.status = "running";
     job.progress = Math.max(job.progress, 1);
+    job.runAfter = undefined;
     job.updatedAt = new Date().toISOString();
     return job;
   });
@@ -2001,6 +2010,7 @@ export async function claimPipelineJob(jobId: string) {
     if (!job) return null;
     job.status = "running";
     job.progress = Math.max(job.progress, 1);
+    job.runAfter = undefined;
     job.updatedAt = new Date().toISOString();
     return job;
   });
@@ -2024,6 +2034,9 @@ export async function updatePipelineJob(
     if (patch.status === "queued") {
       nextPatch.completedAt = undefined;
     }
+    if (patch.status === "completed" && !("error" in nextPatch)) {
+      nextPatch.error = undefined;
+    }
     Object.assign(job, nextPatch, { updatedAt: now });
     return job;
   });
@@ -2034,6 +2047,7 @@ export async function requeuePipelineJob(jobId: string, patch: Partial<PipelineJ
     ...patch,
     status: "queued",
     error: patch.error,
+    runAfter: patch.runAfter,
   });
 }
 
@@ -2079,6 +2093,7 @@ export async function reclaimStalePipelineJobs(staleMs: number) {
         job.status = "queued";
         job.attempts = attempts;
         job.error = `检测到中断的运行中任务（服务重启或执行超时），已自动重新排队（第 ${attempts} 次重试）`;
+        job.runAfter = undefined;
         job.completedAt = undefined;
         job.updatedAt = timestamp;
         reclaimed.push({

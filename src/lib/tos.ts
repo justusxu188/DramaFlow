@@ -2,6 +2,7 @@ import { createHmac, createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { env } from "@/lib/env";
+import { timeoutError, wrapFetchError } from "@/lib/network-errors";
 
 function hmac(key: string | Buffer, value: string) {
   return createHmac("sha256", key).update(value).digest();
@@ -161,11 +162,46 @@ export async function transferRemoteFileToTos(input: {
     return { objectKey, sourceUrl: tosObjectUrl(objectKey) };
   }
 
-  const source = await fetch(input.remoteUrl, { cache: "no-store" });
-  if (!source.ok) {
-    throw new Error(`下载供应商产物失败 (${source.status})`);
+  const timeoutMs = env.TOS_TRANSFER_TIMEOUT_MS ?? 300000;
+  const timeoutSeconds = Math.round(timeoutMs / 1000);
+
+  const downloadController = new AbortController();
+  const downloadTimer = setTimeout(
+    () => downloadController.abort(),
+    timeoutMs,
+  );
+  let body: ArrayBuffer;
+  try {
+    let source: Response;
+    try {
+      source = await fetch(input.remoteUrl, {
+        cache: "no-store",
+        signal: downloadController.signal,
+      });
+    } catch (error) {
+      if (downloadController.signal.aborted) {
+        throw timeoutError(
+          `下载供应商产物超时（${timeoutSeconds} 秒），将自动重试`,
+        );
+      }
+      throw wrapFetchError(error, "下载供应商产物");
+    }
+    if (!source.ok) {
+      throw new Error(`下载供应商产物失败 (${source.status})`);
+    }
+    try {
+      body = await source.arrayBuffer();
+    } catch (error) {
+      if (downloadController.signal.aborted) {
+        throw timeoutError(
+          `下载供应商产物超时（${timeoutSeconds} 秒），将自动重试`,
+        );
+      }
+      throw wrapFetchError(error, "下载供应商产物");
+    }
+  } finally {
+    clearTimeout(downloadTimer);
   }
-  const body = await source.arrayBuffer();
   const signed = createTosUploadUrl({
     projectId: input.projectId,
     projectName: input.projectName,
@@ -174,11 +210,16 @@ export async function transferRemoteFileToTos(input: {
     fileName: input.fileName,
     expiresIn: 1800,
   });
-  const upload = await fetch(signed.uploadUrl, {
-    method: "PUT",
-    body,
-    headers: {
-      "Content-Type": input.fileName.toLowerCase().endsWith(".jpg") ||
+  const uploadController = new AbortController();
+  const uploadTimer = setTimeout(() => uploadController.abort(), timeoutMs);
+  let upload: Response;
+  try {
+    upload = await fetch(signed.uploadUrl, {
+      method: "PUT",
+      body,
+      signal: uploadController.signal,
+      headers: {
+        "Content-Type": input.fileName.toLowerCase().endsWith(".jpg") ||
         input.fileName.toLowerCase().endsWith(".jpeg")
         ? "image/jpeg"
         : input.fileName.toLowerCase().endsWith(".png")
@@ -186,8 +227,18 @@ export async function transferRemoteFileToTos(input: {
           : input.fileName.toLowerCase().endsWith(".mov")
             ? "video/quicktime"
             : "video/mp4",
-    },
-  });
+      },
+    });
+  } catch (error) {
+    if (uploadController.signal.aborted) {
+      throw timeoutError(
+        `转存供应商产物到 TOS 超时（${timeoutSeconds} 秒），将自动重试`,
+      );
+    }
+    throw wrapFetchError(error, "转存供应商产物到 TOS");
+  } finally {
+    clearTimeout(uploadTimer);
+  }
   if (!upload.ok) {
     throw new Error(`转存供应商产物到 TOS 失败 (${upload.status})`);
   }
@@ -216,15 +267,32 @@ export async function uploadLocalFileToTos(input: {
     fileName: input.fileName,
     expiresIn: 1800,
   });
-  const upload = await fetch(signed.uploadUrl, {
-    method: "PUT",
-    body: createReadStream(input.localPath) as unknown as BodyInit,
-    headers: {
-      "Content-Type": input.contentType ?? "video/mp4",
-      "Content-Length": String(file.size),
-    },
-    duplex: "half",
-  } as RequestInit & { duplex: "half" });
+  const timeoutMs = env.TOS_TRANSFER_TIMEOUT_MS ?? 300000;
+  const timeoutSeconds = Math.round(timeoutMs / 1000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let upload: Response;
+  try {
+    upload = await fetch(signed.uploadUrl, {
+      method: "PUT",
+      body: createReadStream(input.localPath) as unknown as BodyInit,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": input.contentType ?? "video/mp4",
+        "Content-Length": String(file.size),
+      },
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw timeoutError(
+        `上传本地处理产物到 TOS 超时（${timeoutSeconds} 秒），将自动重试`,
+      );
+    }
+    throw wrapFetchError(error, "上传本地处理产物到 TOS");
+  } finally {
+    clearTimeout(timer);
+  }
   if (!upload.ok) {
     throw new Error(`上传本地处理产物到 TOS 失败 (${upload.status})`);
   }

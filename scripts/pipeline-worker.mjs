@@ -1,10 +1,12 @@
 const baseUrl = process.env.APP_BASE_URL ?? "http://127.0.0.1:3000";
 const intervalMs = Number(process.env.WORKER_INTERVAL_MS ?? 3000);
+const tickTimeoutMs = Number(process.env.WORKER_TICK_TIMEOUT_MS ?? 120000);
 
 async function tick() {
   try {
     const response = await fetch(`${baseUrl}/api/internal/worker/tick`, {
       method: "POST",
+      signal: AbortSignal.timeout(tickTimeoutMs),
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -12,14 +14,30 @@ async function tick() {
       return;
     }
     if (payload.data?.processed) {
-      console.log(
-        `[worker] ${payload.data.kind} ${payload.data.jobId}${
-          payload.data.error ? ` failed: ${payload.data.error}` : ""
-        }`,
-      );
+      if (payload.data.retried) {
+        console.log(
+          `[worker] ${payload.data.kind} ${payload.data.jobId} transient network error, retry scheduled: ${payload.data.error}`,
+        );
+      } else {
+        console.log(
+          `[worker] ${payload.data.kind} ${payload.data.jobId}${
+            payload.data.error ? ` failed: ${payload.data.error}` : ""
+          }`,
+        );
+      }
     }
   } catch (error) {
-    console.error("[worker] unavailable", error instanceof Error ? error.message : error);
+    const name = error instanceof Error ? error.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      console.error(
+        `[worker] tick timeout after ${Math.round(tickTimeoutMs / 1000)}s`,
+      );
+    } else {
+      console.error(
+        "[worker] unavailable",
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 }
 

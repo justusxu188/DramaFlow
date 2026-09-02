@@ -1,5 +1,10 @@
 import { normalizeProviderStatus } from "@/lib/domain";
 import { env } from "@/lib/env";
+import {
+  isTransientNetworkError,
+  timeoutError,
+  wrapFetchError,
+} from "@/lib/network-errors";
 import type {
   CreativeProvider,
   HighlightResult,
@@ -28,10 +33,13 @@ export class MediaKitProvider
       | "concatVideos"
     >
 {
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init: RequestInit,
+    timeoutMs: number = env.MEDIAKIT_TIMEOUT_MS ?? 120000,
+  ): Promise<T> {
     if (!env.MEDIAKIT_API_KEY) throw new Error("MEDIAKIT_API_KEY 未配置");
     const controller = new AbortController();
-    const timeoutMs = env.MEDIAKIT_TIMEOUT_MS ?? 120000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
@@ -47,11 +55,11 @@ export class MediaKitProvider
       });
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(
-          `MediaKit 请求超时（${Math.round(timeoutMs / 1000)} 秒）`,
+        throw timeoutError(
+          `MediaKit 请求超时（${Math.round(timeoutMs / 1000)} 秒，网络波动将自动重试）`,
         );
       }
-      throw error;
+      throw wrapFetchError(error, "MediaKit 服务");
     } finally {
       clearTimeout(timeout);
     }
@@ -62,6 +70,33 @@ export class MediaKitProvider
       );
     }
     return (await response.json()) as T;
+  }
+
+  /**
+   * 轮询类 GET 请求：瞬时网络错误自动重试（2s/4s 退避），
+   * 避免一次连接抖动直接判任务失败。
+   */
+  private async requestWithRetry<T>(
+    path: string,
+    init: RequestInit,
+    timeoutMs?: number,
+    retries = 2,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await this.request<T>(path, init, timeoutMs);
+      } catch (error) {
+        lastError = error;
+        if (!isTransientNetworkError(error) || attempt === retries) {
+          throw error;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, 2000 * (attempt + 1)),
+        );
+      }
+    }
+    throw lastError;
   }
 
   async analyzeStoryline(input: {
@@ -474,7 +509,7 @@ export class MediaKitProvider
   }
 
   async getTask(id: string) {
-    const data = await this.request<MediaKitResponse>(
+    const data = await this.requestWithRetry<MediaKitResponse>(
       `/tasks/${encodeURIComponent(id)}`,
       { method: "GET" },
     );
