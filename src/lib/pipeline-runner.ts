@@ -2440,19 +2440,33 @@ export async function runPipelineJobNow(jobId: string) {
   return lastResult ?? { processed: false, jobId };
 }
 
+// 进程级互斥锁：worker 可能在 tick 仍在执行时（fetch 超时后）发起下一次 tick，
+// 而服务端 handler 不会随客户端 abort 终止。若不加锁，多个 tick 会在同一 Node
+// 进程内并发执行任务（如跨区 TOS 转存），争抢上行带宽导致全部超时。
+// 加锁后未拿到锁的 tick 立即返回 busy，保证任务严格串行执行。
+let tickInProgress = false;
+
 export async function runPipelineTick() {
-  const reclaimed = await reclaimStalePipelineJobs(
-    env.PIPELINE_JOB_STALE_MS,
-  );
-  for (const stale of reclaimed) {
-    console.warn(
-      `[pipeline] reclaimed stale job ${stale.id} (${stale.kind}): ${stale.action} after ${stale.attempts} attempt(s)`,
+  if (tickInProgress) {
+    return { processed: false, reclaimed: [], busy: true };
+  }
+  tickInProgress = true;
+  try {
+    const reclaimed = await reclaimStalePipelineJobs(
+      env.PIPELINE_JOB_STALE_MS,
     );
+    for (const stale of reclaimed) {
+      console.warn(
+        `[pipeline] reclaimed stale job ${stale.id} (${stale.kind}): ${stale.action} after ${stale.attempts} attempt(s)`,
+      );
+    }
+    const job = await claimNextPipelineJob();
+    if (!job) {
+      return { processed: false, reclaimed };
+    }
+    const result = await executeClaimedJob(job);
+    return { ...result, reclaimed };
+  } finally {
+    tickInProgress = false;
   }
-  const job = await claimNextPipelineJob();
-  if (!job) {
-    return { processed: false, reclaimed };
-  }
-  const result = await executeClaimedJob(job);
-  return { ...result, reclaimed };
 }
